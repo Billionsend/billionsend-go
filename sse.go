@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -84,7 +85,10 @@ func WithoutReconnect() RequestOption { return func(r *requestConfig) { r.noReco
 
 // WithMaxReconnects sets how many reconnects in a row may fail before a
 // stream gives up (default 5). A reconnect that opens the stream resets the
-// count, so the server's scheduled closes never use it up.
+// count, so the server's scheduled closes never use it up. When they run out
+// the stream yields the last reconnect's error: the API's answer as its own
+// type (*RateLimitError, *APIError, ...), or an *APIConnectionError when the
+// API could not be reached.
 func WithMaxReconnects(n int) RequestOption { return func(r *requestConfig) { r.maxReconnects = &n } }
 
 // WithReconnectDelay sets the wait before reconnecting (default 1 s; a server
@@ -97,8 +101,10 @@ func WithReconnectDelay(d time.Duration) RequestOption {
 // loop, or calling Close, closes the connection. When the connection drops
 // (the server also closes every stream about every ten minutes) it reconnects
 // with Last-Event-ID and the events in between are replayed first, unless
-// WithoutReconnect was given. After the reconnect limit it yields an
-// *APIConnectionError; an error a retry cannot fix (a revoked key) is yielded
+// WithoutReconnect was given. A reconnect the API refuses with a Retry-After
+// (a 429, a 5xx) waits that long, and one longer than MaxRetryAfter yields
+// that error at once. After the reconnect limit it yields the last error (see
+// WithMaxReconnects); an error a retry cannot fix (a revoked key) is yielded
 // as its own type.
 type EventStream struct {
 	client  *Client
@@ -252,6 +258,8 @@ func (s *EventStream) Events() iter.Seq2[InboxStreamItem, error] {
 			maxReconnects = *s.cfg.maxReconnects
 		}
 		failures := 0
+		// The last reconnect's failure, nil when the stream itself dropped.
+		var lastErr error
 		// The position a gap was last handed out for: the server repeats the
 		// gap on every reconnect from that position until a newer event moves it.
 		gapAt, gapGiven := "", false
@@ -299,31 +307,57 @@ func (s *EventStream) Events() iter.Seq2[InboxStreamItem, error] {
 				if stop || ended {
 					return
 				}
+				lastErr = nil
 			}
 			if s.ctx.Err() != nil || !reconnect {
 				return
 			}
 			failures++
 			if failures > maxReconnects {
+				// The API's own answer says more than "gave up".
+				var answered *Error
+				if errors.As(lastErr, &answered) && answered.StatusCode != 0 {
+					yield(nil, lastErr)
+					return
+				}
 				yield(nil, connectionError(fmt.Sprintf("the event stream disconnected; gave up after %d reconnects", maxReconnects)))
 				return
 			}
-			if !s.client.sleep(s.ctx, s.delay) {
+			wait := s.delay
+			if hinted := retryAfterOf(lastErr); hinted > 0 {
+				wait = hinted
+			}
+			if !s.client.sleep(s.ctx, wait) {
 				return
 			}
 			if err := s.connect(); err != nil {
 				if s.ctx.Err() != nil {
 					return
 				}
-				if !retryable(err, false) {
+				if !retryable(err, false) || retryAfterOf(err) > MaxRetryAfter {
 					yield(nil, err)
 					return
 				}
+				lastErr = err
 				continue
 			}
 			// Open again: only reconnects that fail in a row count, not the
 			// server closing a quiet stream every ten minutes or so.
 			failures = 0
+			lastErr = nil
 		}
 	}
+}
+
+// retryAfterOf is the Retry-After an API answer carried, 0 without one.
+func retryAfterOf(err error) time.Duration {
+	var limited *RateLimitError
+	if errors.As(err, &limited) {
+		return limited.RetryAfter
+	}
+	var failed *APIError
+	if errors.As(err, &failed) {
+		return failed.RetryAfter
+	}
+	return 0
 }

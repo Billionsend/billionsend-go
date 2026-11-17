@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 (2026-11-17)
+
+- A reconnect the API refuses with a `Retry-After` (a 429, a 5xx) waits that long instead of the reconnect delay; one longer than `MaxRetryAfter` (60 s) is yielded at once. When the reconnects run out, the stream yields the last one's error as its own type (`*RateLimitError`, `*APIError`, ...) when the API answered, and an `*APIConnectionError` ("gave up after N reconnects") only when it could not be reached.
+- `APIError` carries the server's `Retry-After` too: `RetryAfter`, 0 without one.
+
 ## 0.1.2 (2026-11-17)
 
 - An inbox event stream counts only the reconnects that fail in a row toward `WithMaxReconnects`: each reconnect that opens the stream resets the count. A quiet inbox, whose stream the server closes every ten minutes or so with only keep-alive comments in between, no longer gives up after an hour.

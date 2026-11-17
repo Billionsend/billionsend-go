@@ -53,8 +53,8 @@ func TestStreamsTypedEventsAndResumesAfterADrop(t *testing.T) {
 	if fmt.Sprint(got) != want {
 		t.Fatalf("got %v", got)
 	}
-	var conn *APIConnectionError
-	if !errors.As(final, &conn) {
+	var failed *APIError
+	if !errors.As(final, &failed) {
 		t.Fatalf("final %v", final)
 	}
 	if rec.requests[0].Header.Get("Last-Event-ID") != "0" || rec.requests[1].Header.Get("Last-Event-ID") != "2" || rec.requests[2].Header.Get("Last-Event-ID") != "3" {
@@ -219,11 +219,100 @@ func TestGivesUpAfterTheReconnectsThatFailInARow(t *testing.T) {
 			final = err
 		}
 	}
-	var conn *APIConnectionError
-	if !errors.As(final, &conn) || !strings.Contains(final.Error(), "gave up after 3 reconnects") {
+	var failed *APIError
+	if !errors.As(final, &failed) || failed.Name != "unavailable" {
 		t.Fatalf("got %v", final)
 	}
 	if len(rec.requests) != 4 {
+		t.Fatalf("%d requests", len(rec.requests))
+	}
+}
+
+func TestWaitsOutARetryAfterAndYieldsTheAPIsAnswerWhenTheReconnectsRunOut(t *testing.T) {
+	c, rec, waits := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, ": keepalive\n\n")
+			return
+		}
+		w.Header().Set("Retry-After", "7")
+		jsonAnswer(w, 429, `{"name":"too_many_streams","message":"later"}`)
+	}, WithMaxRetries(0))
+	s, err := c.Inboxes.Events.Stream(context.Background(), nil, WithMaxReconnects(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final error
+	for _, err := range s.Events() {
+		if err != nil {
+			final = err
+		}
+	}
+	var limited *RateLimitError
+	if !errors.As(final, &limited) || limited.Name != "too_many_streams" {
+		t.Fatalf("got %v", final)
+	}
+	if len(rec.requests) != 3 || fmt.Sprint(*waits) != "[1s 7s]" {
+		t.Fatalf("%d requests, waits %v", len(rec.requests), *waits)
+	}
+}
+
+func TestYieldsARetryAfterLongerThanAMinuteAtOnce(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, ": keepalive\n\n")
+			return
+		}
+		w.Header().Set("Retry-After", "120")
+		jsonAnswer(w, 503, `{"name":"unavailable","message":"later"}`)
+	}, WithMaxRetries(0))
+	s, err := c.Inboxes.Events.Stream(context.Background(), nil, WithMaxReconnects(5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final error
+	for _, err := range s.Events() {
+		if err != nil {
+			final = err
+		}
+	}
+	var failed *APIError
+	if !errors.As(final, &failed) || failed.RetryAfter != 120*time.Second {
+		t.Fatalf("got %v", final)
+	}
+	if len(rec.requests) != 2 {
+		t.Fatalf("%d requests", len(rec.requests))
+	}
+}
+
+func TestGivesUpWhenTheAPICannotBeReached(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, ": keepalive\n\n")
+			return
+		}
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("no hijacker")
+		}
+		conn, _, _ := hj.Hijack()
+		_ = conn.Close()
+	}, WithMaxRetries(0))
+	s, err := c.Inboxes.Events.Stream(context.Background(), nil, WithMaxReconnects(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final error
+	for _, err := range s.Events() {
+		if err != nil {
+			final = err
+		}
+	}
+	var conn *APIConnectionError
+	if !errors.As(final, &conn) || !strings.Contains(final.Error(), "gave up after 2 reconnects") {
+		t.Fatalf("got %v", final)
+	}
+	// net/http may resend a request whose reused connection closed unanswered.
+	if len(rec.requests) < 3 {
 		t.Fatalf("%d requests", len(rec.requests))
 	}
 }

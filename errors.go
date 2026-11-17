@@ -64,8 +64,12 @@ type RateLimitError struct {
 	RetryAfter time.Duration
 }
 
-// APIError is a 5xx: the API failed to answer the request.
-type APIError struct{ errorBase }
+// APIError is a 5xx: the API failed to answer the request. RetryAfter is the
+// server's hint (0 without one).
+type APIError struct {
+	errorBase
+	RetryAfter time.Duration
+}
 
 // APIConnectionError is a request that never got an answer: DNS, connection,
 // TLS or protocol failure. StatusCode is 0.
@@ -168,7 +172,8 @@ func errorFromResponse(status int, statusText string, body []byte, header http.H
 		after, _ := parseRetryAfter(header.Get("retry-after"), time.Now())
 		return &RateLimitError{errorBase: base, RetryAfter: after}
 	case status >= 500:
-		return &APIError{base}
+		after, _ := parseRetryAfter(header.Get("retry-after"), time.Now())
+		return &APIError{errorBase: base, RetryAfter: after}
 	}
 	return &base
 }
