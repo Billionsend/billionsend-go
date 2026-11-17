@@ -311,8 +311,12 @@ func TestGivesUpWhenTheAPICannotBeReached(t *testing.T) {
 	if !errors.As(final, &conn) || !strings.Contains(final.Error(), "gave up after 2 reconnects") {
 		t.Fatalf("got %v", final)
 	}
-	// net/http may resend a request whose reused connection closed unanswered.
-	if len(rec.requests) < 3 {
-		t.Fatalf("%d requests", len(rec.requests))
+	// net/http may resend a request whose reused connection closed unanswered,
+	// on a server goroutine still running: count under the recorder's lock.
+	rec.mu.Lock()
+	n := len(rec.requests)
+	rec.mu.Unlock()
+	if n < 3 {
+		t.Fatalf("%d requests", n)
 	}
 }
