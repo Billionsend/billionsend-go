@@ -82,8 +82,9 @@ func WithLastEventID(id string) RequestOption {
 // reconnecting with Last-Event-ID.
 func WithoutReconnect() RequestOption { return func(r *requestConfig) { r.noReconnect = true } }
 
-// WithMaxReconnects sets the reconnect attempts in a row before a stream
-// gives up (default 5).
+// WithMaxReconnects sets how many reconnects in a row may fail before a
+// stream gives up (default 5). A reconnect that opens the stream resets the
+// count, so the server's scheduled closes never use it up.
 func WithMaxReconnects(n int) RequestOption { return func(r *requestConfig) { r.maxReconnects = &n } }
 
 // WithReconnectDelay sets the wait before reconnecting (default 1 s; a server
@@ -261,7 +262,6 @@ func (s *EventStream) Events() iter.Seq2[InboxStreamItem, error] {
 			if body != nil {
 				stop, ended := false, false
 				_ = parseEvents(body, s.lastID, func(d time.Duration) { s.delay = d }, func(ev serverEvent) bool {
-					failures = 0
 					if ev.event == StreamGapEventName {
 						if gapGiven && gapAt == s.lastID {
 							return true
@@ -319,7 +319,11 @@ func (s *EventStream) Events() iter.Seq2[InboxStreamItem, error] {
 					yield(nil, err)
 					return
 				}
+				continue
 			}
+			// Open again: only reconnects that fail in a row count, not the
+			// server closing a quiet stream every ten minutes or so.
+			failures = 0
 		}
 	}
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (2026-11-17)
+
+- An inbox event stream counts only the reconnects that fail in a row toward `WithMaxReconnects`: each reconnect that opens the stream resets the count. A quiet inbox, whose stream the server closes every ten minutes or so with only keep-alive comments in between, no longer gives up after an hour.
+
 ## 0.1.1 (2026-11-17)
 
 - The `...All` iterators end with an `*Error` named `application_error` on an answer that is not a list page (no `data` array) or when the item to continue from has no `id`, instead of ending quietly: a truncated walk no longer passes for the whole list.

@@ -77,7 +77,7 @@ for item, err := range stream.Events() {
 }
 ```
 
-One inbox's stream ends after that inbox's `inbox.deleted` or `inbox.expired`. `client.Inboxes.Events.Stream` follows every inbox the key can read. `WithoutReconnect`, `WithMaxReconnects` (default 5) and `WithReconnectDelay` (default 1 s; the server's `retry` overrides it) tune the reconnects.
+One inbox's stream ends after that inbox's `inbox.deleted` or `inbox.expired`. `client.Inboxes.Events.Stream` follows every inbox the key can read. `WithoutReconnect`, `WithMaxReconnects` (reconnects that may fail in a row, default 5; one that opens the stream resets the count) and `WithReconnectDelay` (default 1 s; the server's `retry` overrides it) tune the reconnects.
 
 ## Lists
 

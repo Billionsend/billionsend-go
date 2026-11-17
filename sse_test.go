@@ -174,3 +174,56 @@ func TestWithoutReconnectEndsWhenTheConnectionDrops(t *testing.T) {
 		t.Fatalf("%d events, %d requests", n, len(rec.requests))
 	}
 }
+
+func TestKeepsReconnectingAQuietStreamTheServerCloses(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n <= 12 {
+			streamAnswer(w, ": keepalive\n\n")
+			return
+		}
+		streamAnswer(w, event("1", "inbox.updated", "i1"))
+	}, WithMaxRetries(0))
+	s, err := c.Inboxes.Events.Stream(context.Background(), nil, WithMaxReconnects(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for item, err := range s.Events() {
+		if err != nil {
+			t.Fatalf("gave up after %d requests: %v", len(rec.requests), err)
+		}
+		if ev := item.(*InboxStreamEvent); ev.ID != "1" {
+			t.Fatalf("got %v", ev.ID)
+		}
+		s.Close()
+	}
+	if len(rec.requests) != 13 {
+		t.Fatalf("%d requests", len(rec.requests))
+	}
+}
+
+func TestGivesUpAfterTheReconnectsThatFailInARow(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, ": keepalive\n\n")
+			return
+		}
+		jsonAnswer(w, 503, `{"name":"unavailable","message":"later"}`)
+	}, WithMaxRetries(0))
+	s, err := c.Inboxes.Events.Stream(context.Background(), nil, WithMaxReconnects(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final error
+	for _, err := range s.Events() {
+		if err != nil {
+			final = err
+		}
+	}
+	var conn *APIConnectionError
+	if !errors.As(final, &conn) || !strings.Contains(final.Error(), "gave up after 3 reconnects") {
+		t.Fatalf("got %v", final)
+	}
+	if len(rec.requests) != 4 {
+		t.Fatalf("%d requests", len(rec.requests))
+	}
+}
