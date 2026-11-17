@@ -50,7 +50,10 @@ func itemID(item any) string {
 // paginate walks a cursor-paginated list one item at a time, fetching pages
 // on demand. Starting with before set walks backward (by the first id of each
 // page); otherwise it walks forward from after (by the last id). A failed
-// page is yielded as the error and ends the walk.
+// page is yielded as the error and ends the walk, and so is an answer that is
+// not a list page (no data array, or an item to continue from without an id),
+// as an *Error named "application_error": ending quietly would pass off a
+// truncated walk as the whole list.
 func paginate[T any](
 	fetch func(after, before *string) ([]T, bool, error),
 	start cursor,
@@ -63,10 +66,14 @@ func paginate[T any](
 			after = nil
 		}
 		for {
+			var zero T
 			items, more, err := fetch(after, before)
 			if err != nil {
-				var zero T
 				yield(zero, err)
+				return
+			}
+			if items == nil {
+				yield(zero, applicationError("the list page has no data array"))
 				return
 			}
 			for _, item := range items {
@@ -83,6 +90,7 @@ func paginate[T any](
 			}
 			id := idOf(edge)
 			if id == "" {
+				yield(zero, applicationError("the item of the list page to continue from has no id"))
 				return
 			}
 			if backward {

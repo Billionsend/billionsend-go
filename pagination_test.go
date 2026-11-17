@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,45 @@ func TestListAllEndsOnAFailedPageAndStopsWhenTheLoopDoes(t *testing.T) {
 	}
 	if len(rec.requests) != 3 {
 		t.Fatalf("%d requests", len(rec.requests))
+	}
+}
+
+func TestListAllRefusesAnAnswerThatIsNotAListPage(t *testing.T) {
+	for _, answer := range []string{`{"object":"list","has_more":true}`, `{"data":null,"has_more":true}`, `{"data":{},"has_more":true}`, `[]`} {
+		c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+			jsonAnswer(w, 200, answer)
+		})
+		var failed error
+		for _, err := range c.Emails.ListAll(context.Background(), nil) {
+			if err != nil {
+				failed = err
+			}
+		}
+		var e *Error
+		if !errors.As(failed, &e) || e.Name != "application_error" || len(rec.requests) != 1 {
+			t.Errorf("%s: got %v after %d requests", answer, failed, len(rec.requests))
+		}
+	}
+}
+
+func TestListAllRefusesAnItemToContinueFromWithoutAnID(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		jsonAnswer(w, 200, `{"object":"list","has_more":true,"data":[{"id":"a"},{"subject":"no id"}]}`)
+	})
+	var seen []string
+	var failed error
+	for item, err := range c.Emails.ListAll(context.Background(), nil) {
+		if err != nil {
+			failed = err
+			break
+		}
+		seen = append(seen, item.ID)
+	}
+	var e *Error
+	if !errors.As(failed, &e) || e.Name != "application_error" || !strings.Contains(e.Message, "no id") {
+		t.Fatalf("got %v", failed)
+	}
+	if fmt.Sprint(seen) != "[a ]" || len(rec.requests) != 1 {
+		t.Fatalf("seen %v after %d requests", seen, len(rec.requests))
 	}
 }
