@@ -1,0 +1,40 @@
+name: release
+
+# Releases github.com/billionsend/billionsend-go at the version version.go
+# declares. A Go module needs no registry upload: the tag is the release. Run it
+# by hand (Actions → release → Run workflow) on a version tag; it checks the tag
+# against version.go, runs the checks, creates the GitHub release and asks the
+# Go module proxy to fetch the version, so `go get` finds it at once.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Only a tag that names version.go's version releases, so the number is
+      # always a commit you can find.
+      - name: Run from the tag of the declared version
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' version.go)
+          test "v$version" = "$GITHUB_REF_NAME"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+      - run: go run ./internal/cmd/generate -check
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md."
+      - name: Ask the module proxy for the version
+        run: curl -fsS "https://proxy.golang.org/github.com/billionsend/billionsend-go/@v/$GITHUB_REF_NAME.info"
