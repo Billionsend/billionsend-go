@@ -63,7 +63,8 @@ func VerifyWebhook(payload []byte, header http.Header, secret string, opts ...Ve
 	if o.Now.IsZero() {
 		o.Now = time.Now()
 	}
-	id, timestamp, signature := header.Get("webhook-id"), header.Get("webhook-timestamp"), header.Get("webhook-signature")
+	read := func(name string) string { return strings.TrimSpace(header.Get(name)) }
+	id, timestamp, signature := read("webhook-id"), read("webhook-timestamp"), read("webhook-signature")
 	if id == "" || timestamp == "" || signature == "" {
 		return nil, webhookError("missing the webhook-id, webhook-timestamp or webhook-signature header")
 	}
@@ -114,7 +115,8 @@ func VerifyWebhook(payload []byte, header http.Header, secret string, opts ...Ve
 // webhookKey is the key of a whsec_ secret: canonical base64 of 24 to 64
 // bytes, as the dashboard and the API hand it out.
 func webhookKey(secret string) ([]byte, error) {
-	encoded, ok := strings.CutPrefix(secret, webhookSecretPrefix)
+	// A secret read from a file often carries a trailing newline.
+	encoded, ok := strings.CutPrefix(strings.TrimSpace(secret), webhookSecretPrefix)
 	if ok {
 		key, err := base64.StdEncoding.DecodeString(encoded)
 		if err == nil && len(key) >= webhookSecretMinBytes && len(key) <= webhookSecretMaxBytes &&

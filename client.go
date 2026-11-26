@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -45,7 +46,9 @@ type Client struct {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithAPIKey sets the API key (bs_...). The default is BILLIONSEND_API_KEY.
+// WithAPIKey sets the API key (bs_...), without the whitespace around it (a key
+// read from a file ends in a newline). The default, also for a blank key, is
+// BILLIONSEND_API_KEY.
 func WithAPIKey(key string) Option { return func(c *Client) { c.apiKey = key } }
 
 // WithBaseURL sets the API's base URL. The default is BILLIONSEND_BASE_URL,
@@ -59,8 +62,10 @@ func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.httpClie
 func WithTimeout(d time.Duration) Option { return func(c *Client) { c.timeout = d } }
 
 // WithMaxRetries sets the retries for 429, 5xx, timeouts and network failures
-// (default 2). Only requests safe to repeat are retried: GET, PUT and DELETE,
-// and the sending operations, which always carry an Idempotency-Key.
+// (default 2). Every request is retried after a 429, which the API answers
+// before it writes anything; after any other failure only the requests safe to
+// repeat are: GET, PUT and DELETE (a file upload excepted), and the operations
+// that always carry an Idempotency-Key.
 func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
 
 // WithHeader adds a header sent with every request.
@@ -72,7 +77,6 @@ func WithHeader(name, value string) Option {
 // without WithBaseURL, BILLIONSEND_BASE_URL.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
-		apiKey:     os.Getenv("BILLIONSEND_API_KEY"),
 		baseURL:    strings.TrimRight(os.Getenv("BILLIONSEND_BASE_URL"), "/"),
 		httpClient: http.DefaultClient,
 		timeout:    DefaultTimeout,
@@ -87,6 +91,9 @@ func NewClient(opts ...Option) *Client {
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	if c.apiKey = strings.TrimSpace(c.apiKey); c.apiKey == "" {
+		c.apiKey = strings.TrimSpace(os.Getenv("BILLIONSEND_API_KEY"))
 	}
 	if c.maxRetries < 0 {
 		c.maxRetries = 0
@@ -119,6 +126,7 @@ type requestConfig struct {
 	noReconnect     bool
 	maxReconnects   *int
 	reconnectDelay  time.Duration
+	idleTimeout     *time.Duration
 }
 
 // WithIdempotencyKey sets the Idempotency-Key of a sending operation (1 to
@@ -160,6 +168,9 @@ type call struct {
 	params     any
 	idempotent bool
 	noAuth     bool
+	// noRepeat keeps a request from being repeated after anything but a 429
+	// although its method is repeatable.
+	noRepeat bool
 }
 
 func (c *Client) config(opts []RequestOption) *requestConfig {
@@ -170,12 +181,16 @@ func (c *Client) config(opts []RequestOption) *requestConfig {
 	return r
 }
 
-// fillPath fills {name} placeholders, refusing an empty value.
+// fillPath fills {name} placeholders, refusing an empty value and the dot
+// segments "." and "..", which a URL folds into another route.
 func fillPath(template string, params []string) (string, error) {
 	out := template
 	for i := 0; i+1 < len(params); i += 2 {
 		if params[i+1] == "" {
 			return "", applicationError("missing path parameter %q", params[i])
+		}
+		if params[i+1] == "." || params[i+1] == ".." {
+			return "", applicationError("invalid path parameter %q: \".\" and \"..\" are not ids", params[i])
 		}
 		out = strings.Replace(out, "{"+params[i]+"}", url.PathEscape(params[i+1]), 1)
 	}
@@ -216,7 +231,8 @@ func paramText(f reflect.Value) (string, bool) {
 		}
 		return paramText(f.Elem())
 	case reflect.Slice:
-		if f.IsNil() {
+		// An empty list names nothing: "domain_id=" would be refused as an empty id.
+		if f.Len() == 0 {
 			return "", false
 		}
 		parts := make([]string, 0, f.Len())
@@ -279,11 +295,16 @@ func (c *Client) prepare(spec *call, r *requestConfig, stream bool) (*prepared, 
 	}
 	p := &prepared{method: spec.method, url: u, header: h, timeout: r.timeout}
 	if spec.body != nil && !isNilPointer(spec.body) {
-		p.body, err = json.Marshal(spec.body)
+		contentType := "application/json"
+		if form, ok := spec.body.(multipartBody); ok {
+			p.body, contentType, err = form.encodeMultipart()
+		} else {
+			p.body, err = json.Marshal(spec.body)
+		}
 		if err != nil {
 			return nil, applicationError("encoding the request body: %v", err)
 		}
-		h.Set("Content-Type", "application/json")
+		h.Set("Content-Type", contentType)
 	}
 	switch {
 	case r.idempotencyKey != "":
@@ -296,13 +317,40 @@ func (c *Client) prepare(spec *call, r *requestConfig, stream bool) (*prepared, 
 	} else {
 		h.Set("Authorization", "Bearer "+c.apiKey)
 	}
+	if err := checkHeaders(h); err != nil {
+		return nil, err
+	}
 	p.keyed = h.Get("Idempotency-Key") != ""
-	p.retryable = safeMethods[spec.method] || p.keyed
+	p.retryable = safeMethods[spec.method] && !spec.noRepeat || p.keyed
 	p.maxRetries = c.maxRetries
 	if r.maxRetries != nil {
 		p.maxRetries = *r.maxRetries
 	}
 	return p, nil
+}
+
+var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// checkHeaders refuses a header HTTP cannot carry before anything is sent,
+// naming the header and never its value (it may be the key).
+func checkHeaders(h http.Header) error {
+	refused := func(name string) error {
+		return &Error{
+			Name:    "invalid_header",
+			Message: fmt.Sprintf("the %s header has a value HTTP cannot carry (only printable ASCII and tabs); nothing was sent", name),
+		}
+	}
+	for name, values := range h {
+		if !headerName.MatchString(name) {
+			return refused(strconv.QuoteToASCII(name))
+		}
+		for _, v := range values {
+			if strings.IndexFunc(v, func(r rune) bool { return r != '\t' && (r < 0x20 || r > 0x7e) }) >= 0 {
+				return refused(name)
+			}
+		}
+	}
+	return nil
 }
 
 func isNilPointer(v any) bool {
@@ -342,11 +390,20 @@ func (c *Client) do(ctx context.Context, spec *call, out any, opts []RequestOpti
 // (its body unread); every other answer is read whole.
 func (c *Client) send(ctx context.Context, p *prepared, stream bool) (*http.Response, []byte, error) {
 	for attempt := 0; ; attempt++ {
+		// A caller that already gave up gets no request, whatever the transport
+		// does with the context.
+		if ctx.Err() != nil {
+			return nil, nil, applicationError("request canceled: %v", ctx.Err())
+		}
 		resp, body, retryAfter, err := c.attempt(ctx, p, stream)
 		if err == nil {
 			return resp, body, nil
 		}
-		if ctx.Err() != nil || !p.retryable || attempt >= p.maxRetries || !retryable(err, p.keyed) {
+		// A 429 is answered before anything is written, so any request may be
+		// repeated after one; every other failure only when repeating it cannot
+		// do the work twice.
+		mayRepeat := p.retryable || resp != nil && resp.StatusCode == http.StatusTooManyRequests
+		if ctx.Err() != nil || !mayRepeat || attempt >= p.maxRetries || !retryable(err, p.keyed) {
 			return resp, body, err
 		}
 		delay, ok := retryDelay(attempt, retryAfter, c.now(), c.random)

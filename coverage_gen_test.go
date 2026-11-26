@@ -30,6 +30,10 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.APIKeys.List(ctx, nil)
 		return err
 	},
+	"apiKeys.update": func(ctx context.Context, c *Client) error {
+		_, err := c.APIKeys.Update(ctx, "p1", &UpdateAPIKeyRequest{})
+		return err
+	},
 	"audiences.contacts.create": func(ctx context.Context, c *Client) error {
 		_, err := c.Audiences.Contacts.Create(ctx, "p1", &CreateContactRequest{})
 		return err
@@ -46,8 +50,80 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Audiences.Contacts.Update(ctx, "p1", "p2", &UpdateContactRequest{})
 		return err
 	},
+	"automations.create": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Create(ctx, &CreateAutomationRequest{})
+		return err
+	},
+	"automations.duplicate": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Duplicate(ctx, "p1")
+		return err
+	},
+	"automations.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Get(ctx, "p1")
+		return err
+	},
+	"automations.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.List(ctx, nil)
+		return err
+	},
+	"automations.metrics": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Metrics(ctx, "p1", nil)
+		return err
+	},
+	"automations.remove": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Remove(ctx, "p1")
+		return err
+	},
+	"automations.runs.cancel": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Runs.Cancel(ctx, "p1", "p2")
+		return err
+	},
+	"automations.runs.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Runs.Get(ctx, "p1", "p2")
+		return err
+	},
+	"automations.runs.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Runs.List(ctx, "p1", nil)
+		return err
+	},
+	"automations.simulate": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Simulate(ctx, "p1", &SimulateAutomationRequest{})
+		return err
+	},
+	"automations.stop": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Stop(ctx, "p1")
+		return err
+	},
+	"automations.update": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Update(ctx, "p1", &UpdateAutomationRequest{})
+		return err
+	},
+	"automations.validate": func(ctx context.Context, c *Client) error {
+		_, err := c.Automations.Validate(ctx, &ValidateAutomationRequest{})
+		return err
+	},
+	"brand.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Brand.Get(ctx)
+		return err
+	},
+	"brand.logo.delete": func(ctx context.Context, c *Client) error {
+		_, err := c.Brand.Logo.Delete(ctx)
+		return err
+	},
+	"brand.logo.upload": func(ctx context.Context, c *Client) error {
+		_, err := c.Brand.Logo.Upload(ctx, &UploadLogoForm{})
+		return err
+	},
+	"brand.update": func(ctx context.Context, c *Client) error {
+		_, err := c.Brand.Update(ctx, &UpdateBrandRequest{})
+		return err
+	},
 	"broadcasts.cancel": func(ctx context.Context, c *Client) error {
 		_, err := c.Broadcasts.Cancel(ctx, "p1")
+		return err
+	},
+	"broadcasts.clickedLinks": func(ctx context.Context, c *Client) error {
+		_, err := c.Broadcasts.ClickedLinks(ctx, "p1", nil)
 		return err
 	},
 	"broadcasts.create": func(ctx context.Context, c *Client) error {
@@ -68,6 +144,10 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 	},
 	"broadcasts.list": func(ctx context.Context, c *Client) error {
 		_, err := c.Broadcasts.List(ctx, nil)
+		return err
+	},
+	"broadcasts.recipients": func(ctx context.Context, c *Client) error {
+		_, err := c.Broadcasts.Recipients(ctx, "p1", nil)
 		return err
 	},
 	"broadcasts.send": func(ctx context.Context, c *Client) error {
@@ -122,6 +202,18 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Contacts.Get(ctx, "p1")
 		return err
 	},
+	"contacts.imports.create": func(ctx context.Context, c *Client) error {
+		_, err := c.Contacts.Imports.Create(ctx, &CreateContactImportForm{})
+		return err
+	},
+	"contacts.imports.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Contacts.Imports.Get(ctx, "p1")
+		return err
+	},
+	"contacts.imports.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Contacts.Imports.List(ctx, nil)
+		return err
+	},
 	"contacts.list": func(ctx context.Context, c *Client) error {
 		_, err := c.Contacts.List(ctx, nil)
 		return err
@@ -132,6 +224,10 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 	},
 	"contacts.segments.add": func(ctx context.Context, c *Client) error {
 		_, err := c.Contacts.Segments.Add(ctx, "p1", "p2")
+		return err
+	},
+	"contacts.segments.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Contacts.Segments.List(ctx, "p1", nil)
 		return err
 	},
 	"contacts.segments.remove": func(ctx context.Context, c *Client) error {
@@ -154,6 +250,18 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Deliverability.Get(ctx)
 		return err
 	},
+	"domains.claims.create": func(ctx context.Context, c *Client) error {
+		_, err := c.Domains.Claims.Create(ctx, &ClaimDomainRequest{})
+		return err
+	},
+	"domains.claims.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Domains.Claims.Get(ctx, "p1")
+		return err
+	},
+	"domains.claims.verify": func(ctx context.Context, c *Client) error {
+		_, err := c.Domains.Claims.Verify(ctx, "p1")
+		return err
+	},
 	"domains.create": func(ctx context.Context, c *Client) error {
 		_, err := c.Domains.Create(ctx, &CreateDomainRequest{})
 		return err
@@ -170,12 +278,28 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Domains.List(ctx, nil)
 		return err
 	},
+	"domains.unsubscribePage.logo.delete": func(ctx context.Context, c *Client) error {
+		_, err := c.Domains.UnsubscribePage.Logo.Delete(ctx, "p1")
+		return err
+	},
+	"domains.unsubscribePage.logo.upload": func(ctx context.Context, c *Client) error {
+		_, err := c.Domains.UnsubscribePage.Logo.Upload(ctx, "p1", &UploadLogoForm{})
+		return err
+	},
 	"domains.update": func(ctx context.Context, c *Client) error {
 		_, err := c.Domains.Update(ctx, "p1", &UpdateDomainRequest{})
 		return err
 	},
 	"domains.verify": func(ctx context.Context, c *Client) error {
 		_, err := c.Domains.Verify(ctx, "p1")
+		return err
+	},
+	"emails.attachments.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Emails.Attachments.Get(ctx, "p1", "p2")
+		return err
+	},
+	"emails.attachments.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Emails.Attachments.List(ctx, "p1", nil)
 		return err
 	},
 	"emails.batch": func(ctx context.Context, c *Client) error {
@@ -254,12 +378,48 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Emails.Send(ctx, &SendEmailRequest{})
 		return err
 	},
+	"emails.share": func(ctx context.Context, c *Client) error {
+		_, err := c.Emails.Share(ctx, "p1", &ShareEmailRequest{})
+		return err
+	},
+	"emails.unshare": func(ctx context.Context, c *Client) error {
+		_, err := c.Emails.Unshare(ctx, "p1")
+		return err
+	},
 	"emails.update": func(ctx context.Context, c *Client) error {
 		_, err := c.Emails.Update(ctx, "p1", &UpdateEmailRequest{})
 		return err
 	},
+	"events.create": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.Create(ctx, &CreateEventRequest{})
+		return err
+	},
+	"events.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.Get(ctx, "p1")
+		return err
+	},
+	"events.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.List(ctx, nil)
+		return err
+	},
+	"events.remove": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.Remove(ctx, "p1")
+		return err
+	},
+	"events.send": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.Send(ctx, &SendEventRequest{})
+		return err
+	},
+	"events.update": func(ctx context.Context, c *Client) error {
+		_, err := c.Events.Update(ctx, "p1", &UpdateEventRequest{})
+		return err
+	},
 	"inboxes.agent.get": func(ctx context.Context, c *Client) error {
 		_, err := c.Inboxes.Agent.Get(ctx, "p1")
+		return err
+	},
+	"inboxes.agent.update": func(ctx context.Context, c *Client) error {
+		_, err := c.Inboxes.Agent.Update(ctx, "p1", &UpdateInboxAgentRequest{})
 		return err
 	},
 	"inboxes.codes.latest": func(ctx context.Context, c *Client) error {
@@ -412,6 +572,22 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Inboxes.Update(ctx, "p1", &UpdateInboxRequest{})
 		return err
 	},
+	"logs.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Logs.Get(ctx, "p1")
+		return err
+	},
+	"logs.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Logs.List(ctx, nil)
+		return err
+	},
+	"oauthGrants.list": func(ctx context.Context, c *Client) error {
+		_, err := c.OAuthGrants.List(ctx, nil)
+		return err
+	},
+	"oauthGrants.revoke": func(ctx context.Context, c *Client) error {
+		_, err := c.OAuthGrants.Revoke(ctx, "p1")
+		return err
+	},
 	"segments.contacts.list": func(ctx context.Context, c *Client) error {
 		_, err := c.Segments.Contacts.List(ctx, "p1", nil)
 		return err
@@ -512,10 +688,6 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Unsubscribes.Create(ctx, &CreateUnsubscribeRequest{})
 		return err
 	},
-	"unsubscribes.delete": func(ctx context.Context, c *Client) error {
-		_, err := c.Unsubscribes.Delete(ctx, "p1")
-		return err
-	},
 	"unsubscribes.list": func(ctx context.Context, c *Client) error {
 		_, err := c.Unsubscribes.List(ctx, nil)
 		return err
@@ -552,6 +724,22 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Webhooks.Delete(ctx, "p1")
 		return err
 	},
+	"webhooks.events.attempts.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Webhooks.Events.Attempts.List(ctx, "p1", "p2", nil)
+		return err
+	},
+	"webhooks.events.get": func(ctx context.Context, c *Client) error {
+		_, err := c.Webhooks.Events.Get(ctx, "p1", "p2")
+		return err
+	},
+	"webhooks.events.list": func(ctx context.Context, c *Client) error {
+		_, err := c.Webhooks.Events.List(ctx, "p1", nil)
+		return err
+	},
+	"webhooks.events.replay": func(ctx context.Context, c *Client) error {
+		_, err := c.Webhooks.Events.Replay(ctx, "p1", "p2")
+		return err
+	},
 	"webhooks.get": func(ctx context.Context, c *Client) error {
 		_, err := c.Webhooks.Get(ctx, "p1")
 		return err
@@ -560,8 +748,8 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		_, err := c.Webhooks.List(ctx, nil)
 		return err
 	},
-	"webhooks.rotate": func(ctx context.Context, c *Client) error {
-		_, err := c.Webhooks.Rotate(ctx, "p1", &RotateWebhookSecretRequest{})
+	"webhooks.rotateSigningSecret": func(ctx context.Context, c *Client) error {
+		_, err := c.Webhooks.RotateSigningSecret(ctx, "p1", &RotateWebhookSecretRequest{})
 		return err
 	},
 	"webhooks.update": func(ctx context.Context, c *Client) error {

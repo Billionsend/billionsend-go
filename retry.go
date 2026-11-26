@@ -38,7 +38,7 @@ func retryDelay(attempt int, retryAfter string, now time.Time, random func() flo
 	return time.Duration(float64(backoff) * (1 - random()*0.25)), true
 }
 
-// retryable says whether a failed attempt may be retried: a 429, a 5xx, a
+// retryable says whether a failure is one a repeat could mend: a 429, a 5xx, a
 // timeout or a network failure; and, for a request that carries an
 // Idempotency-Key, the 409 concurrent_idempotent_requests the API answers
 // while the first attempt with that key is still being processed.

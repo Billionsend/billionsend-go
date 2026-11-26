@@ -117,6 +117,15 @@ func TestEveryOperationIsCoveredAndNothingElse(t *testing.T) {
 		case !op.idempotent && r.Header.Get("Idempotency-Key") != "":
 			problem = "an Idempotency-Key on an operation that takes none"
 		}
+		// The path parameters (p1, p2, ... in the calls) sit in their places.
+		want := op.template
+		for n := 1; strings.Contains(want, "{"); n++ {
+			start, end := strings.Index(want, "{"), strings.Index(want, "}")
+			want = want[:start] + fmt.Sprintf("p%d", n) + want[end+1:]
+		}
+		if r.URL.Path != want {
+			problem = fmt.Sprintf("path %s, want %s", r.URL.Path, want)
+		}
 		mu.Lock()
 		hits[op.id] = append(hits[op.id], problem)
 		mu.Unlock()
@@ -166,9 +175,6 @@ func TestEveryOperationIsCoveredAndNothingElse(t *testing.T) {
 	}
 	if len(unknown) > 0 {
 		t.Errorf("requests the snapshot does not have: %v", unknown)
-	}
-	if len(snapshot) != 139 {
-		t.Logf("the snapshot holds %d operations", len(snapshot))
 	}
 	total := 0
 	for _, h := range hits {

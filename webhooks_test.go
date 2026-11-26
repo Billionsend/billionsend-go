@@ -93,3 +93,10 @@ func TestRefusesMissingHeadersBadSecretsAndNonJSON(t *testing.T) {
 	_, err = VerifyWebhook([]byte(body), webhookHeaders(sign(vectorSecret, vectorID, vectorTimestamp, body), vectorTimestamp), vectorSecret, VerifyOptions{Now: vectorAt})
 	refused(t, err, "not JSON")
 }
+
+func TestAcceptsASecretAndHeadersWithSurroundingWhitespace(t *testing.T) {
+	h := webhookHeaders(vectorSignature+" ", " "+vectorTimestamp)
+	if _, err := VerifyWebhook([]byte(vectorPayload), h, vectorSecret+"\n", VerifyOptions{Now: vectorAt}); err != nil {
+		t.Fatal(err)
+	}
+}

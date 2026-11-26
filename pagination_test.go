@@ -123,3 +123,45 @@ func TestListAllRefusesAnItemToContinueFromWithoutAnID(t *testing.T) {
 		t.Fatalf("seen %v after %d requests", seen, len(rec.requests))
 	}
 }
+
+// A thread's emails come in two shapes and are typed any; the walk continues
+// from their id all the same.
+func TestListAllContinuesFromAnItemTypedAny(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			jsonAnswer(w, 200, `{"object":"list","has_more":true,"data":[{"id":"m1","direction":"inbound"}]}`)
+			return
+		}
+		jsonAnswer(w, 200, `{"object":"list","has_more":false,"data":[{"id":"m2","direction":"outbound"}]}`)
+	})
+	count := 0
+	for _, err := range c.Inboxes.Threads.Emails.ListAll(context.Background(), "i1", "t1", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		count++
+	}
+	if count != 2 || rec.requests[1].URL.Query().Get("after") != "m1" {
+		t.Fatalf("%d items, after %q", count, rec.requests[1].URL.Query().Get("after"))
+	}
+}
+
+func TestListAllWalksANestedListOfANewResource(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			jsonAnswer(w, 200, `{"object":"list","has_more":true,"data":[{"id":"a1"}]}`)
+			return
+		}
+		jsonAnswer(w, 200, `{"object":"list","has_more":false,"data":[{"id":"a2"}]}`)
+	})
+	var ids []string
+	for item, err := range c.Webhooks.Events.Attempts.ListAll(context.Background(), "w1", "msg_1", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, item.ID)
+	}
+	if strings.Join(ids, ",") != "a1,a2" || rec.requests[1].URL.Path != "/webhooks/w1/events/msg_1/attempts" || rec.requests[1].URL.Query().Get("after") != "a1" {
+		t.Fatalf("%v %v", ids, rec.requests[1].URL)
+	}
+}

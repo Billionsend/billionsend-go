@@ -28,8 +28,13 @@ func startCursor(params any) cursor {
 	return cursor{after: read("After"), before: read("Before")}
 }
 
-// itemID is the id of a list item (its ID field).
+// itemID is the id of a list item: its ID field, or the "id" of an item typed
+// any because it comes in several shapes (a thread's emails).
 func itemID(item any) string {
+	if fields, ok := item.(map[string]any); ok {
+		id, _ := fields["id"].(string)
+		return id
+	}
 	v := reflect.Indirect(reflect.ValueOf(item))
 	if v.Kind() != reflect.Struct {
 		return ""

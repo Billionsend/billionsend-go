@@ -320,3 +320,53 @@ func TestGivesUpWhenTheAPICannotBeReached(t *testing.T) {
 		t.Fatalf("%d requests", n)
 	}
 }
+
+func TestResumesFromThePositionTheServerOpensTheStreamAt(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, "id: 41\n\n: keep-alive\n\n")
+			return
+		}
+		streamAnswer(w, event("42", "inbox.deleted", "i1"))
+	})
+	s, err := c.Inboxes.Events.StreamInbox(context.Background(), "i1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, err := range s.Events() {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(rec.requests) != 2 || rec.requests[1].Header.Get("Last-Event-ID") != "41" {
+		t.Fatalf("%d requests, resumed from %q", len(rec.requests), rec.requests[len(rec.requests)-1].Header.Get("Last-Event-ID"))
+	}
+}
+
+func TestReconnectsAConnectionThatDeliversNothing(t *testing.T) {
+	c, rec, _ := testClient(t, func(n int, r *http.Request, w http.ResponseWriter) {
+		if n == 1 {
+			streamAnswer(w, event("1", "inbox.updated", "i1"))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done() // silent until the client drops it
+			return
+		}
+		streamAnswer(w, event("2", "inbox.deleted", "i1"))
+	})
+	s, err := c.Inboxes.Events.StreamInbox(context.Background(), "i1", nil, WithIdleTimeout(200*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for item, err := range s.Events() {
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Time spent on an event is not idle time of the connection.
+		time.Sleep(300 * time.Millisecond)
+		ids = append(ids, item.(*InboxStreamEvent).ID)
+	}
+	if strings.Join(ids, ",") != "1,2" || rec.requests[1].Header.Get("Last-Event-ID") != "1" {
+		t.Fatalf("got %v", ids)
+	}
+}

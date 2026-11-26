@@ -12,13 +12,18 @@ type services struct {
 	APIKeys           *APIKeysService
 	Agent             *AgentService
 	Audiences         *AudiencesService
+	Automations       *AutomationsService
+	Brand             *BrandService
 	Broadcasts        *BroadcastsService
 	ContactProperties *ContactPropertiesService
 	Contacts          *ContactsService
 	Deliverability    *DeliverabilityService
 	Domains           *DomainsService
 	Emails            *EmailsService
+	Events            *EventsService
 	Inboxes           *InboxesService
+	Logs              *LogsService
+	OAuthGrants       *OAuthGrantsService
 	Segments          *SegmentsService
 	Suppressions      *SuppressionsService
 	Templates         *TemplatesService
@@ -33,13 +38,18 @@ func (c *Client) initServices() {
 	c.APIKeys = newAPIKeysService(c)
 	c.Agent = newAgentService(c)
 	c.Audiences = newAudiencesService(c)
+	c.Automations = newAutomationsService(c)
+	c.Brand = newBrandService(c)
 	c.Broadcasts = newBroadcastsService(c)
 	c.ContactProperties = newContactPropertiesService(c)
 	c.Contacts = newContactsService(c)
 	c.Deliverability = newDeliverabilityService(c)
 	c.Domains = newDomainsService(c)
 	c.Emails = newEmailsService(c)
+	c.Events = newEventsService(c)
 	c.Inboxes = newInboxesService(c)
+	c.Logs = newLogsService(c)
+	c.OAuthGrants = newOAuthGrantsService(c)
 	c.Segments = newSegmentsService(c)
 	c.Suppressions = newSuppressionsService(c)
 	c.Templates = newTemplatesService(c)
@@ -130,6 +140,21 @@ func (s *APIKeysService) ListAll(ctx context.Context, params *APIKeysListParams,
 	}, startCursor(params), func(item ListAPIKeysResponseDataItem) string { return itemID(item) })
 }
 
+// Update calls PATCH /api-keys/{id} (apiKeys.update).
+//
+// # Update an API key
+//
+// Renames the key. Its permission, domain and inbox scope never change: mint a
+// new key for another scope. A key held to one domain updates only keys held
+// to that same domain; any other key is not found.
+func (s *APIKeysService) Update(ctx context.Context, id string, body *UpdateAPIKeyRequest, opts ...RequestOption) (*UpdateAPIKeyResponse, error) {
+	out := new(UpdateAPIKeyResponse)
+	if err := s.client.do(ctx, &call{operation: "apiKeys.update", method: "PATCH", path: "/api-keys/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentService groups the Agent operations.
 type AgentService struct {
 	client *Client
@@ -212,7 +237,7 @@ func newAudiencesContactsService(c *Client) *AudiencesContactsService {
 
 // Create calls POST /audiences/{audienceId}/contacts (audiences.contacts.create).
 //
-// Create a contact
+// Create a contact in an audience
 func (s *AudiencesContactsService) Create(ctx context.Context, audienceID string, body *CreateContactRequest, opts ...RequestOption) (*ContactIDResponse, error) {
 	out := new(ContactIDResponse)
 	if err := s.client.do(ctx, &call{operation: "audiences.contacts.create", method: "POST", path: "/audiences/{audienceId}/contacts", pathParams: []string{"audienceId", audienceID}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
@@ -232,7 +257,7 @@ type AudiencesContactsDeleteParams struct {
 
 // Delete calls DELETE /audiences/{audienceId}/contacts/{id} (audiences.contacts.delete).
 //
-// Delete a contact
+// Delete a contact from an audience
 func (s *AudiencesContactsService) Delete(ctx context.Context, audienceID string, id string, params *AudiencesContactsDeleteParams, opts ...RequestOption) (*RemoveContactResponse, error) {
 	out := new(RemoveContactResponse)
 	if err := s.client.do(ctx, &call{operation: "audiences.contacts.delete", method: "DELETE", path: "/audiences/{audienceId}/contacts/{id}", pathParams: []string{"audienceId", audienceID, "id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -243,7 +268,7 @@ func (s *AudiencesContactsService) Delete(ctx context.Context, audienceID string
 
 // Get calls GET /audiences/{audienceId}/contacts/{id} (audiences.contacts.get).
 //
-// Retrieve a contact
+// Retrieve a contact in an audience
 func (s *AudiencesContactsService) Get(ctx context.Context, audienceID string, id string, opts ...RequestOption) (*GetContactResponse, error) {
 	out := new(GetContactResponse)
 	if err := s.client.do(ctx, &call{operation: "audiences.contacts.get", method: "GET", path: "/audiences/{audienceId}/contacts/{id}", pathParams: []string{"audienceId", audienceID, "id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -254,10 +279,393 @@ func (s *AudiencesContactsService) Get(ctx context.Context, audienceID string, i
 
 // Update calls PATCH /audiences/{audienceId}/contacts/{id} (audiences.contacts.update).
 //
-// Update a contact
+// Update a contact in an audience
 func (s *AudiencesContactsService) Update(ctx context.Context, audienceID string, id string, body *UpdateContactRequest, opts ...RequestOption) (*ContactIDResponse, error) {
 	out := new(ContactIDResponse)
 	if err := s.client.do(ctx, &call{operation: "audiences.contacts.update", method: "PATCH", path: "/audiences/{audienceId}/contacts/{id}", pathParams: []string{"audienceId", audienceID, "id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AutomationsService groups the Automations operations.
+type AutomationsService struct {
+	client *Client
+	Runs   *AutomationsRunsService
+}
+
+func newAutomationsService(c *Client) *AutomationsService {
+	return &AutomationsService{client: c, Runs: newAutomationsRunsService(c)}
+}
+
+// Create calls POST /automations (automations.create).
+//
+// # Create an automation
+//
+// Steps and connections are checked on every write; a draft may be incomplete.
+// With status enabled the whole automation is checked, including that its
+// templates, sender domains, topics and segments exist (422 with each problem
+// and its JSON Pointer). An agent key can only write drafts (403).
+func (s *AutomationsService) Create(ctx context.Context, body *CreateAutomationRequest, opts ...RequestOption) (*AutomationIDResponse, error) {
+	out := new(AutomationIDResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.create", method: "POST", path: "/automations", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Duplicate calls POST /automations/{id}/duplicate (automations.duplicate).
+//
+// # Duplicate an automation
+//
+// A new automation named "<name> (copy)", disabled, with the same steps and
+// connections.
+func (s *AutomationsService) Duplicate(ctx context.Context, id string, opts ...RequestOption) (*AutomationIDResponse, error) {
+	out := new(AutomationIDResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.duplicate", method: "POST", path: "/automations/{id}/duplicate", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /automations/{id} (automations.get).
+//
+// Retrieve an automation
+func (s *AutomationsService) Get(ctx context.Context, id string, opts ...RequestOption) (*GetAutomationResponse, error) {
+	out := new(GetAutomationResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.get", method: "GET", path: "/automations/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AutomationsListParams are the query and header parameters of AutomationsList.
+type AutomationsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+	// One of: "enabled", "disabled".
+	Status *string `query:"status"`
+}
+
+// List calls GET /automations (automations.list).
+//
+// # List automations
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones.
+func (s *AutomationsService) List(ctx context.Context, params *AutomationsListParams, opts ...RequestOption) (*ListAutomationsResponse, error) {
+	out := new(ListAutomationsResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.list", method: "GET", path: "/automations", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *AutomationsService) ListAll(ctx context.Context, params *AutomationsListParams, opts ...RequestOption) iter.Seq2[ListAutomationsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListAutomationsResponseDataItem, bool, error) {
+		p := AutomationsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListAutomationsResponseDataItem) string { return itemID(item) })
+}
+
+// AutomationsMetricsParams are the query and header parameters of AutomationsMetrics.
+type AutomationsMetricsParams struct {
+	// Default: seven UTC days before end_date
+	StartDate *string `query:"start_date"`
+	// Default now; a date alone means the end of that UTC day
+	EndDate *string `query:"end_date"`
+}
+
+// Metrics calls GET /automations/{id}/metrics (automations.metrics).
+//
+// # Metrics of an automation
+//
+// BillionSend extension. What the statistics store counted for the automation
+// in a period (default the last seven UTC days): runs started, completed,
+// failed and cancelled; the results of the mail it sent; and for every step of
+// the current version the people who entered, finished, failed in and skipped
+// it. Counts follow the sink loop within seconds.
+func (s *AutomationsService) Metrics(ctx context.Context, id string, params *AutomationsMetricsParams, opts ...RequestOption) (*AutomationMetricsResponse, error) {
+	out := new(AutomationMetricsResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.metrics", method: "GET", path: "/automations/{id}/metrics", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Remove calls DELETE /automations/{id} (automations.remove).
+//
+// # Remove an automation
+//
+// Removes the automation and its versions at once; runs still going are not
+// executed any more, and its run history is deleted in the background.
+func (s *AutomationsService) Remove(ctx context.Context, id string, opts ...RequestOption) (*RemoveAutomationResponse, error) {
+	out := new(RemoveAutomationResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.remove", method: "DELETE", path: "/automations/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Simulate calls POST /automations/{id}/simulate (automations.simulate).
+//
+// # Simulate a run of an automation
+//
+// BillionSend extension. Works out one contact's pass through the automation's
+// current steps without running anything: which way each step goes, when, and
+// the mail it would send. The clock is the simulation's own: delays and waits
+// move it, so a flow of days answers at once. Waits take the events given, in
+// order. Nothing is sent, stored or counted. Send steps are checked against
+// the published template, the sender domain, the topic, the recipient's
+// opt-outs and the suppression list; the team's send quota, reputation holds
+// and reviews are decided only when mail is really accepted. contact_update
+// changes a copy of the contact for the steps after it. Works on a draft too,
+// if it has a trigger.
+func (s *AutomationsService) Simulate(ctx context.Context, id string, body *SimulateAutomationRequest, opts ...RequestOption) (*SimulateAutomationResponse, error) {
+	out := new(SimulateAutomationResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.simulate", method: "POST", path: "/automations/{id}/simulate", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Stop calls POST /automations/{id}/stop (automations.stop).
+//
+// # Stop an automation
+//
+// Sets the automation to disabled: no new runs start; runs already going
+// finish. Stopping a stopped automation answers the same.
+func (s *AutomationsService) Stop(ctx context.Context, id string, opts ...RequestOption) (*StopAutomationResponse, error) {
+	out := new(StopAutomationResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.stop", method: "POST", path: "/automations/{id}/stop", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Update calls PATCH /automations/{id} (automations.update).
+//
+// # Update an automation
+//
+// Name, status and/or steps with connections. Changing the steps adds a
+// version; runs already going keep the version they started on. An enabled
+// automation's steps cannot change (409): stop it first, or give status
+// disabled in the same request, or duplicate it. Enabling checks the whole
+// automation (422 with each problem and its JSON Pointer); an agent key cannot
+// enable (403).
+func (s *AutomationsService) Update(ctx context.Context, id string, body *UpdateAutomationRequest, opts ...RequestOption) (*AutomationIDResponse, error) {
+	out := new(AutomationIDResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.update", method: "PATCH", path: "/automations/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Validate calls POST /automations/validate (automations.validate).
+//
+// # Validate an automation document
+//
+// BillionSend extension. Checks steps and connections without storing
+// anything. Always answers 200 with every problem found: layer draft are the
+// problems that stop a save (the same check as every write), layer enable are
+// what stops enabling (a trigger, reachability, and that the templates, sender
+// domains, topics and segments exist; reported only for a document that can be
+// saved). Each has a JSON Pointer path into the submitted document, a stable
+// code and a suggestion.
+func (s *AutomationsService) Validate(ctx context.Context, body *ValidateAutomationRequest, opts ...RequestOption) (*ValidateAutomationResponse, error) {
+	out := new(ValidateAutomationResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.validate", method: "POST", path: "/automations/validate", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AutomationsRunsService groups the Automations Runs operations.
+type AutomationsRunsService struct {
+	client *Client
+}
+
+func newAutomationsRunsService(c *Client) *AutomationsRunsService {
+	return &AutomationsRunsService{client: c}
+}
+
+// Cancel calls POST /automations/{id}/runs/{run_id}/cancel (automations.runs.cancel).
+//
+// # Cancel a run of an automation
+//
+// BillionSend extension. Ends a running run as cancelled: its waiting step is
+// skipped and nothing more happens for it. Mail the run already queued is not
+// recalled. A run that is already completed, failed or cancelled answers 409.
+func (s *AutomationsRunsService) Cancel(ctx context.Context, id string, runID string, opts ...RequestOption) (*CancelAutomationRunResponse, error) {
+	out := new(CancelAutomationRunResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.runs.cancel", method: "POST", path: "/automations/{id}/runs/{run_id}/cancel", pathParams: []string{"id", id, "run_id", runID}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /automations/{id}/runs/{run_id} (automations.runs.get).
+//
+// # Retrieve a run of an automation
+//
+// The run with every step of its automation's version: the steps that ran in
+// the order they ran, with their output and error, then the rest as pending
+// (still reachable) or skipped.
+func (s *AutomationsRunsService) Get(ctx context.Context, id string, runID string, opts ...RequestOption) (*GetAutomationRunResponse, error) {
+	out := new(GetAutomationRunResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.runs.get", method: "GET", path: "/automations/{id}/runs/{run_id}", pathParams: []string{"id", id, "run_id", runID}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AutomationsRunsListParams are the query and header parameters of AutomationsRunsList.
+type AutomationsRunsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+	// Run statuses to keep, comma-separated: running, completed, failed, cancelled
+	Status *string `query:"status"`
+}
+
+// List calls GET /automations/{id}/runs (automations.runs.list).
+//
+// # List the runs of an automation
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones. status keeps runs in any of the comma-separated statuses
+// (running, completed, failed, cancelled).
+func (s *AutomationsRunsService) List(ctx context.Context, id string, params *AutomationsRunsListParams, opts ...RequestOption) (*ListAutomationRunsResponse, error) {
+	out := new(ListAutomationRunsResponse)
+	if err := s.client.do(ctx, &call{operation: "automations.runs.list", method: "GET", path: "/automations/{id}/runs", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *AutomationsRunsService) ListAll(ctx context.Context, id string, params *AutomationsRunsListParams, opts ...RequestOption) iter.Seq2[ListAutomationRunsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListAutomationRunsResponseDataItem, bool, error) {
+		p := AutomationsRunsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListAutomationRunsResponseDataItem) string { return itemID(item) })
+}
+
+// BrandService groups the Brand operations.
+type BrandService struct {
+	client *Client
+	Logo   *BrandLogoService
+}
+
+func newBrandService(c *Client) *BrandService {
+	return &BrandService{client: c, Logo: newBrandLogoService(c)}
+}
+
+// Get calls GET /brand (brand.get).
+//
+// # Retrieve the brand defaults
+//
+// BillionSend extension. The team's brand defaults for its hosted unsubscribe
+// pages (the dashboard's Settings → Brand): the logo, accent color, font,
+// footer address and the two footer switches. A domain's own
+// `unsubscribe_page` overrides any of them.
+func (s *BrandService) Get(ctx context.Context, opts ...RequestOption) (*Brand, error) {
+	out := new(Brand)
+	if err := s.client.do(ctx, &call{operation: "brand.get", method: "GET", path: "/brand", pathParams: []string{}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Update calls PATCH /brand (brand.update).
+//
+// # Update the brand defaults
+//
+// BillionSend extension. Changes the team's brand defaults; fields not sent
+// keep their value, null clears one. Needs a key made by an owner or admin (as
+// the dashboard's Brand settings do).
+func (s *BrandService) Update(ctx context.Context, body *UpdateBrandRequest, opts ...RequestOption) (*Brand, error) {
+	out := new(Brand)
+	if err := s.client.do(ctx, &call{operation: "brand.update", method: "PATCH", path: "/brand", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// BrandLogoService groups the Brand Logo operations.
+type BrandLogoService struct {
+	client *Client
+}
+
+func newBrandLogoService(c *Client) *BrandLogoService {
+	return &BrandLogoService{client: c}
+}
+
+// Delete calls DELETE /brand/logo (brand.logo.delete).
+//
+// # Remove the team logo
+//
+// BillionSend extension. Removes the team's logo; pages of domains without a
+// logo of their own then show none. Removing a logo that is not there
+// succeeds. Needs a key made by an owner or admin.
+func (s *BrandLogoService) Delete(ctx context.Context, opts ...RequestOption) (*RemoveLogoResponse, error) {
+	out := new(RemoveLogoResponse)
+	if err := s.client.do(ctx, &call{operation: "brand.logo.delete", method: "DELETE", path: "/brand/logo", pathParams: []string{}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Upload calls PUT /brand/logo (brand.logo.upload).
+//
+// # Upload the team logo
+//
+// BillionSend extension. Sets the team's logo, the one every domain's
+// unsubscribe page shows unless the domain has its own (PUT
+// /domains/{id}/unsubscribe-page/logo), and the team's picture in the
+// dashboard; it replaces any earlier one. Send the image as
+// `multipart/form-data` in a field named `file`: PNG, JPEG or WebP, judged
+// from the bytes, at most 2 MiB. Needs a key made by an owner or admin.
+//
+// It uploads multipart/form-data and is not repeated after a 5xx, a timeout or
+// a dropped connection; a 429 is still retried.
+func (s *BrandLogoService) Upload(ctx context.Context, body *UploadLogoForm, opts ...RequestOption) (*LogoResponse, error) {
+	out := new(LogoResponse)
+	if err := s.client.do(ctx, &call{operation: "brand.logo.upload", method: "PUT", path: "/brand/logo", pathParams: []string{}, idempotent: false, noAuth: false, body: body, noRepeat: true}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -281,6 +689,52 @@ func (s *BroadcastsService) Cancel(ctx context.Context, id string, opts ...Reque
 		return nil, err
 	}
 	return out, nil
+}
+
+// BroadcastsClickedLinksParams are the query and header parameters of BroadcastsClickedLinks.
+type BroadcastsClickedLinksParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// ClickedLinks calls GET /broadcasts/{id}/clicked-links (broadcasts.clickedLinks).
+//
+// # List broadcast clicked links
+//
+// The links recipients clicked in a broadcast, most clicked first, from the
+// statistics (the same counts as `GET /emails/metrics/links`). Newest first,
+// with cursor pagination: `after` takes the last id of a page and pages toward
+// older items, `before` takes the first id and pages back toward newer ones.
+func (s *BroadcastsService) ClickedLinks(ctx context.Context, id string, params *BroadcastsClickedLinksParams, opts ...RequestOption) (*ListBroadcastClickedLinksResponse, error) {
+	out := new(ListBroadcastClickedLinksResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcasts.clickedLinks", method: "GET", path: "/broadcasts/{id}/clicked-links", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClickedLinksAll walks every item of ClickedLinks, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *BroadcastsService) ClickedLinksAll(ctx context.Context, id string, params *BroadcastsClickedLinksParams, opts ...RequestOption) iter.Seq2[ListBroadcastClickedLinksResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListBroadcastClickedLinksResponseDataItem, bool, error) {
+		p := BroadcastsClickedLinksParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.ClickedLinks(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListBroadcastClickedLinksResponseDataItem) string { return itemID(item) })
 }
 
 // Create calls POST /broadcasts (broadcasts.create).
@@ -374,6 +828,64 @@ func (s *BroadcastsService) ListAll(ctx context.Context, params *BroadcastsListP
 		}
 		return page.Data, page.HasMore, nil
 	}, startCursor(params), func(item ListBroadcastsResponseDataItem) string { return itemID(item) })
+}
+
+// BroadcastsRecipientsParams are the query and header parameters of BroadcastsRecipients.
+type BroadcastsRecipientsParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+	// The outcome to list recipients of; one `email_events` type One of: "sent",
+	// "delivered", "opened", "clicked", "bounced", "complained", "unsubscribed",
+	// "suppressed".
+	Type *string `query:"type"`
+	// Only the recipient with this address (matched without regard to case)
+	Email *string `query:"email"`
+	// Only bounces of this class; allowed only with type=bounced One of:
+	// "permanent", "transient", "undetermined".
+	BounceType *string `query:"bounce_type"`
+}
+
+// Recipients calls GET /broadcasts/{id}/recipients (broadcasts.recipients).
+//
+// # List broadcast recipients
+//
+// The recipients of a broadcast that had one outcome: `type` (required) is
+// sent, delivered, opened, clicked, bounced, complained, unsubscribed or
+// suppressed. `email` narrows to one address; `bounce_type` (permanent,
+// transient or undetermined) narrows bounces. Read from the delivery records,
+// newest recipient first. Newest first, with cursor pagination: `after` takes
+// the last id of a page and pages toward older items, `before` takes the first
+// id and pages back toward newer ones.
+func (s *BroadcastsService) Recipients(ctx context.Context, id string, params *BroadcastsRecipientsParams, opts ...RequestOption) (*ListBroadcastRecipientsResponse, error) {
+	out := new(ListBroadcastRecipientsResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcasts.recipients", method: "GET", path: "/broadcasts/{id}/recipients", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RecipientsAll walks every item of Recipients, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *BroadcastsService) RecipientsAll(ctx context.Context, id string, params *BroadcastsRecipientsParams, opts ...RequestOption) iter.Seq2[ListBroadcastRecipientsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListBroadcastRecipientsResponseDataItem, bool, error) {
+		p := BroadcastsRecipientsParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.Recipients(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListBroadcastRecipientsResponseDataItem) string { return itemID(item) })
 }
 
 // Send calls POST /broadcasts/{id}/send (broadcasts.send).
@@ -500,12 +1012,13 @@ func (s *ContactPropertiesService) Update(ctx context.Context, id string, body *
 type ContactsService struct {
 	client   *Client
 	Batch    *ContactsBatchService
+	Imports  *ContactsImportsService
 	Segments *ContactsSegmentsService
 	Topics   *ContactsTopicsService
 }
 
 func newContactsService(c *Client) *ContactsService {
-	return &ContactsService{client: c, Batch: newContactsBatchService(c), Segments: newContactsSegmentsService(c), Topics: newContactsTopicsService(c)}
+	return &ContactsService{client: c, Batch: newContactsBatchService(c), Imports: newContactsImportsService(c), Segments: newContactsSegmentsService(c), Topics: newContactsTopicsService(c)}
 }
 
 // Create calls POST /contacts (contacts.create).
@@ -660,7 +1173,7 @@ type ContactsBatchCreateParams struct {
 
 // Create calls POST /contacts/batch (contacts.batch.create).
 //
-// # Create in bulk
+// # Create contacts in bulk
 //
 // Creates up to 1000 contacts in one request. Each item is a
 // CreateContactRequest. `on_conflict` decides what happens to an email that
@@ -699,7 +1212,7 @@ func (s *ContactsBatchService) Get(ctx context.Context, body *BatchGetContactsRe
 
 // Remove calls POST /contacts/batch/remove (contacts.batch.remove).
 //
-// # Delete in bulk
+// # Delete contacts in bulk
 //
 // Deletes up to 1000 contacts by id or by email address in one request and
 // lists the rows actually deleted; unknown ids or addresses are skipped.
@@ -711,6 +1224,93 @@ func (s *ContactsBatchService) Remove(ctx context.Context, body *BatchRemoveCont
 		return nil, err
 	}
 	return out, nil
+}
+
+// ContactsImportsService groups the Contacts Imports operations.
+type ContactsImportsService struct {
+	client *Client
+}
+
+func newContactsImportsService(c *Client) *ContactsImportsService {
+	return &ContactsImportsService{client: c}
+}
+
+// Create calls POST /contacts/imports (contacts.imports.create).
+//
+// # Create a contact import
+//
+// Uploads a CSV (`multipart/form-data`; `column_map`, `segments` and `topics`
+// are JSON-encoded strings) and imports it in the background: poll Retrieve a
+// contact import for `status` and `counts`. A row with an invalid address, an
+// address that can never receive mail, or a value that does not fit its column
+// type fails; with the plan's contact cap reached, the rows that do not fit
+// fail. A file that marks a row unsubscribed only opts that contact out; an
+// import never subscribes anyone who unsubscribed. At most 5 imports can be
+// queued or running per team.
+//
+// It uploads multipart/form-data and is not repeated after a 5xx, a timeout or
+// a dropped connection; a 429 is still retried.
+func (s *ContactsImportsService) Create(ctx context.Context, body *CreateContactImportForm, opts ...RequestOption) (*CreateContactImportResponse, error) {
+	out := new(CreateContactImportResponse)
+	if err := s.client.do(ctx, &call{operation: "contacts.imports.create", method: "POST", path: "/contacts/imports", pathParams: []string{}, idempotent: false, noAuth: false, body: body, noRepeat: true}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /contacts/imports/{id} (contacts.imports.get).
+//
+// Retrieve a contact import
+func (s *ContactsImportsService) Get(ctx context.Context, id string, opts ...RequestOption) (*ContactImport, error) {
+	out := new(ContactImport)
+	if err := s.client.do(ctx, &call{operation: "contacts.imports.get", method: "GET", path: "/contacts/imports/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ContactsImportsListParams are the query and header parameters of ContactsImportsList.
+type ContactsImportsListParams struct {
+	// Page size, 1-100 (default 10)
+	Limit  *int64  `query:"limit"`
+	After  *string `query:"after"`
+	Before *string `query:"before"`
+	// One of: "queued", "in_progress", "completed", "failed".
+	Status *string `query:"status"`
+}
+
+// List calls GET /contacts/imports (contacts.imports.list).
+//
+// # List contact imports
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones. Ten per page unless `limit` says otherwise; `status`
+// filters.
+func (s *ContactsImportsService) List(ctx context.Context, params *ContactsImportsListParams, opts ...RequestOption) (*ListContactImportsResponse, error) {
+	out := new(ListContactImportsResponse)
+	if err := s.client.do(ctx, &call{operation: "contacts.imports.list", method: "GET", path: "/contacts/imports", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *ContactsImportsService) ListAll(ctx context.Context, params *ContactsImportsListParams, opts ...RequestOption) iter.Seq2[ContactImport, error] {
+	return paginate(func(after, before *string) ([]ContactImport, bool, error) {
+		p := ContactsImportsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ContactImport) string { return itemID(item) })
 }
 
 // ContactsSegmentsService groups the Contacts Segments operations.
@@ -731,6 +1331,53 @@ func (s *ContactsSegmentsService) Add(ctx context.Context, id string, segmentID 
 		return nil, err
 	}
 	return out, nil
+}
+
+// ContactsSegmentsListParams are the query and header parameters of ContactsSegmentsList.
+type ContactsSegmentsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /contacts/{id}/segments (contacts.segments.list).
+//
+// # List contact segments
+//
+// The segments the contact is in: an explicit member row, or a match of the
+// segment's saved filter (the rule `GET /segments/{id}/contacts` uses). Newest
+// first, with cursor pagination: `after` takes the last id of a page and pages
+// toward older items, `before` takes the first id and pages back toward newer
+// ones.
+func (s *ContactsSegmentsService) List(ctx context.Context, id string, params *ContactsSegmentsListParams, opts ...RequestOption) (*ListSegmentsResponse, error) {
+	out := new(ListSegmentsResponse)
+	if err := s.client.do(ctx, &call{operation: "contacts.segments.list", method: "GET", path: "/contacts/{id}/segments", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *ContactsSegmentsService) ListAll(ctx context.Context, id string, params *ContactsSegmentsListParams, opts ...RequestOption) iter.Seq2[ListSegmentsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListSegmentsResponseDataItem, bool, error) {
+		p := ContactsSegmentsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListSegmentsResponseDataItem) string { return itemID(item) })
 }
 
 // Remove calls DELETE /contacts/{id}/segments/{segmentId} (contacts.segments.remove).
@@ -786,7 +1433,11 @@ func newDeliverabilityService(c *Client) *DeliverabilityService {
 
 // Get calls GET /deliverability (deliverability.get).
 //
-// Get deliverability
+// # Get deliverability
+//
+// The account deliverability score over the last 30 days, its content and
+// outcome parts, your hard bounce and complaint rates, and your standing.
+// BillionSend extension.
 func (s *DeliverabilityService) Get(ctx context.Context, opts ...RequestOption) (*DeliverabilityResponse, error) {
 	out := new(DeliverabilityResponse)
 	if err := s.client.do(ctx, &call{operation: "deliverability.get", method: "GET", path: "/deliverability", pathParams: []string{}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -797,11 +1448,13 @@ func (s *DeliverabilityService) Get(ctx context.Context, opts ...RequestOption) 
 
 // DomainsService groups the Domains operations.
 type DomainsService struct {
-	client *Client
+	client          *Client
+	Claims          *DomainsClaimsService
+	UnsubscribePage *DomainsUnsubscribePageService
 }
 
 func newDomainsService(c *Client) *DomainsService {
-	return &DomainsService{client: c}
+	return &DomainsService{client: c, Claims: newDomainsClaimsService(c), UnsubscribePage: newDomainsUnsubscribePageService(c)}
 }
 
 // Create calls POST /domains (domains.create).
@@ -905,15 +1558,132 @@ func (s *DomainsService) Verify(ctx context.Context, id string, opts ...RequestO
 	return out, nil
 }
 
+// DomainsClaimsService groups the Domains Claims operations.
+type DomainsClaimsService struct {
+	client *Client
+}
+
+func newDomainsClaimsService(c *Client) *DomainsClaimsService {
+	return &DomainsClaimsService{client: c}
+}
+
+// Create calls POST /domains/claim (domains.claims.create).
+//
+// # Claim a domain
+//
+// Starts taking over a domain another team already holds (creating it answers
+// 409 "domain already registered"). The response carries a TXT record to
+// publish at the domain; then call Verify Domain Claim. Once the record is
+// seen and the holder's safety checks pass (`blocked_reason`), the holder's
+// domain is removed and the team gets the domain as a new one with its own
+// DKIM key: fetch it with Retrieve Domain under the claim's `domain_id`,
+// publish its records and verify it. Nothing of the holder's data comes with
+// it. A live claim for the same name is returned as it stands; a claim lasts 7
+// days.
+func (s *DomainsClaimsService) Create(ctx context.Context, body *ClaimDomainRequest, opts ...RequestOption) (*DomainClaim, error) {
+	out := new(DomainClaim)
+	if err := s.client.do(ctx, &call{operation: "domains.claims.create", method: "POST", path: "/domains/claim", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /domains/{id}/claim (domains.claims.get).
+//
+// # Retrieve a domain claim
+//
+// The claim for a placeholder domain id, as it stands. Poll it until `status`
+// is `completed`.
+func (s *DomainsClaimsService) Get(ctx context.Context, id string, opts ...RequestOption) (*DomainClaim, error) {
+	out := new(DomainClaim)
+	if err := s.client.do(ctx, &call{operation: "domains.claims.get", method: "GET", path: "/domains/{id}/claim", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Verify calls POST /domains/{id}/claim/verify (domains.claims.verify).
+//
+// # Verify a domain claim
+//
+// Looks for the TXT record, runs the safety checks and, when they pass,
+// transfers the domain: the answer is the claim as it stands, `completed` when
+// the transfer went through. A claim held back (`blocked`) is looked at again
+// every few minutes by BillionSend; calling again checks at once.
+func (s *DomainsClaimsService) Verify(ctx context.Context, id string, opts ...RequestOption) (*DomainClaim, error) {
+	out := new(DomainClaim)
+	if err := s.client.do(ctx, &call{operation: "domains.claims.verify", method: "POST", path: "/domains/{id}/claim/verify", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DomainsUnsubscribePageService groups the Domains UnsubscribePage operations.
+type DomainsUnsubscribePageService struct {
+	client *Client
+	Logo   *DomainsUnsubscribePageLogoService
+}
+
+func newDomainsUnsubscribePageService(c *Client) *DomainsUnsubscribePageService {
+	return &DomainsUnsubscribePageService{client: c, Logo: newDomainsUnsubscribePageLogoService(c)}
+}
+
+// DomainsUnsubscribePageLogoService groups the Domains UnsubscribePage Logo operations.
+type DomainsUnsubscribePageLogoService struct {
+	client *Client
+}
+
+func newDomainsUnsubscribePageLogoService(c *Client) *DomainsUnsubscribePageLogoService {
+	return &DomainsUnsubscribePageLogoService{client: c}
+}
+
+// Delete calls DELETE /domains/{id}/unsubscribe-page/logo (domains.unsubscribePage.logo.delete).
+//
+// # Remove a domain's unsubscribe page logo
+//
+// BillionSend extension. Removes this domain's own logo; its unsubscribe pages
+// then show the team's logo (GET /brand), or none. Removing a logo that is not
+// there succeeds.
+func (s *DomainsUnsubscribePageLogoService) Delete(ctx context.Context, id string, opts ...RequestOption) (*RemoveLogoResponse, error) {
+	out := new(RemoveLogoResponse)
+	if err := s.client.do(ctx, &call{operation: "domains.unsubscribePage.logo.delete", method: "DELETE", path: "/domains/{id}/unsubscribe-page/logo", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Upload calls PUT /domains/{id}/unsubscribe-page/logo (domains.unsubscribePage.logo.upload).
+//
+// # Upload a domain's unsubscribe page logo
+//
+// BillionSend extension. Sets this domain's own logo on its unsubscribe pages,
+// replacing any earlier one; send the image as `multipart/form-data` in a
+// field named `file`. PNG, JPEG or WebP, judged from the bytes, at most 2 MiB.
+// Afterwards `unsubscribe_page.logo_url` on Retrieve a domain returns the new
+// address. A domain without a logo of its own shows the team's (PUT
+// /brand/logo). On a plan without branding (Free) recipients see the built-in
+// look until the team upgrades.
+//
+// It uploads multipart/form-data and is not repeated after a 5xx, a timeout or
+// a dropped connection; a 429 is still retried.
+func (s *DomainsUnsubscribePageLogoService) Upload(ctx context.Context, id string, body *UploadLogoForm, opts ...RequestOption) (*LogoResponse, error) {
+	out := new(LogoResponse)
+	if err := s.client.do(ctx, &call{operation: "domains.unsubscribePage.logo.upload", method: "PUT", path: "/domains/{id}/unsubscribe-page/logo", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body, noRepeat: true}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EmailsService groups the Emails operations.
 type EmailsService struct {
-	client    *Client
-	Metrics   *EmailsMetricsService
-	Receiving *EmailsReceivingService
+	client      *Client
+	Attachments *EmailsAttachmentsService
+	Metrics     *EmailsMetricsService
+	Receiving   *EmailsReceivingService
 }
 
 func newEmailsService(c *Client) *EmailsService {
-	return &EmailsService{client: c, Metrics: newEmailsMetricsService(c), Receiving: newEmailsReceivingService(c)}
+	return &EmailsService{client: c, Attachments: newEmailsAttachmentsService(c), Metrics: newEmailsMetricsService(c), Receiving: newEmailsReceivingService(c)}
 }
 
 // EmailsBatchParams are the query and header parameters of EmailsBatch.
@@ -928,6 +1698,10 @@ type EmailsBatchParams struct {
 // Batch calls POST /emails/batch (emails.batch).
 //
 // # Send a batch of emails
+//
+// Queue up to 100 emails in one request. With `x-batch-validation: strict`
+// (the default) one invalid email refuses the whole batch; with `permissive`
+// the valid ones are queued and each invalid one is reported by its index.
 //
 // It always sends an Idempotency-Key: WithIdempotencyKey's, or a new UUID for this
 // call that its retries reuse.
@@ -974,7 +1748,10 @@ func (s *EmailsService) Get(ctx context.Context, id string, opts ...RequestOptio
 
 // Insights calls GET /emails/{id}/insights (emails.insights).
 //
-// Get email insights
+// # Get email insights
+//
+// The check results and score for one email. Answers 404 when the email has no
+// insights. BillionSend extension.
 func (s *EmailsService) Insights(ctx context.Context, id string, opts ...RequestOption) (*EmailInsightsResponse, error) {
 	out := new(EmailInsightsResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.insights", method: "GET", path: "/emails/{id}/insights", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -1032,11 +1809,47 @@ func (s *EmailsService) ListAll(ctx context.Context, params *EmailsListParams, o
 //
 // # Send an email
 //
+// Queue one email for sending, now or at `scheduled_at` (up to 30 days ahead).
+// `to`, `cc` and `bcc` together hold at most 50 recipients. Retry with the
+// same `Idempotency-Key` and payload to get the original answer instead of a
+// second email.
+//
 // It always sends an Idempotency-Key: WithIdempotencyKey's, or a new UUID for this
 // call that its retries reuse.
 func (s *EmailsService) Send(ctx context.Context, body *SendEmailRequest, opts ...RequestOption) (*SendEmailResponse, error) {
 	out := new(SendEmailResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.send", method: "POST", path: "/emails", pathParams: []string{}, idempotent: true, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Share calls POST /emails/{id}/share (emails.share).
+//
+// # Share an email
+//
+// Creates a public link to view one sent email: its header lines and its body,
+// nothing else about the team or the email (no Bcc, no files to download). The
+// link carries a random token, expires after `expires_in` (48 hours at most,
+// and by default) and can be revoked earlier with `DELETE /emails/{id}/share`.
+// Needs a full access key.
+func (s *EmailsService) Share(ctx context.Context, id string, body *ShareEmailRequest, opts ...RequestOption) (*ShareEmailResponse, error) {
+	out := new(ShareEmailResponse)
+	if err := s.client.do(ctx, &call{operation: "emails.share", method: "POST", path: "/emails/{id}/share", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Unshare calls DELETE /emails/{id}/share (emails.unshare).
+//
+// # Revoke an email's share links
+//
+// Ends every live share link of one sent email at once. BillionSend extension;
+// the links of other emails are not touched. Needs a full access key.
+func (s *EmailsService) Unshare(ctx context.Context, id string, opts ...RequestOption) (*UnshareEmailResponse, error) {
+	out := new(UnshareEmailResponse)
+	if err := s.client.do(ctx, &call{operation: "emails.unshare", method: "DELETE", path: "/emails/{id}/share", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1051,6 +1864,76 @@ func (s *EmailsService) Update(ctx context.Context, id string, body *UpdateEmail
 		return nil, err
 	}
 	return out, nil
+}
+
+// EmailsAttachmentsService groups the Emails Attachments operations.
+type EmailsAttachmentsService struct {
+	client *Client
+}
+
+func newEmailsAttachmentsService(c *Client) *EmailsAttachmentsService {
+	return &EmailsAttachmentsService{client: c}
+}
+
+// Get calls GET /emails/{email_id}/attachments/{id} (emails.attachments.get).
+//
+// # Get an attachment
+//
+// One attachment's metadata and a signed download link valid for one hour.
+// Needs a full access key.
+func (s *EmailsAttachmentsService) Get(ctx context.Context, emailID string, id string, opts ...RequestOption) (*GetSentAttachmentResponse, error) {
+	out := new(GetSentAttachmentResponse)
+	if err := s.client.do(ctx, &call{operation: "emails.attachments.get", method: "GET", path: "/emails/{email_id}/attachments/{id}", pathParams: []string{"email_id", emailID, "id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EmailsAttachmentsListParams are the query and header parameters of EmailsAttachmentsList.
+type EmailsAttachmentsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /emails/{email_id}/attachments (emails.attachments.list).
+//
+// # List attachments
+//
+// The attachments and inline parts of one sent email, each with a signed
+// download link valid for one hour; all of them unless `limit` is given. Needs
+// a full access key. The files come from the email's stored content, so they
+// are gone once the content retention period removed it (the list is then
+// empty).
+func (s *EmailsAttachmentsService) List(ctx context.Context, emailID string, params *EmailsAttachmentsListParams, opts ...RequestOption) (*ListSentAttachmentsResponse, error) {
+	out := new(ListSentAttachmentsResponse)
+	if err := s.client.do(ctx, &call{operation: "emails.attachments.list", method: "GET", path: "/emails/{email_id}/attachments", pathParams: []string{"email_id", emailID}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *EmailsAttachmentsService) ListAll(ctx context.Context, emailID string, params *EmailsAttachmentsListParams, opts ...RequestOption) iter.Seq2[ListSentAttachmentsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListSentAttachmentsResponseDataItem, bool, error) {
+		p := EmailsAttachmentsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, emailID, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListSentAttachmentsResponseDataItem) string { return itemID(item) })
 }
 
 // EmailsMetricsService groups the Emails Metrics operations.
@@ -1084,7 +1967,11 @@ type EmailsMetricsGetParams struct {
 
 // Get calls GET /emails/metrics (emails.metrics).
 //
-// Get email metrics
+// # Get email metrics
+//
+// Delivery statistics for a date range, by period, domain, email or broadcast:
+// counts and rates for sent, delivered, bounced, complained, opened and
+// clicked. Needs a full access key.
 func (s *EmailsMetricsService) Get(ctx context.Context, params *EmailsMetricsGetParams, opts ...RequestOption) (*EmailsMetricsGetResponse, error) {
 	out := new(EmailsMetricsGetResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.metrics", method: "GET", path: "/emails/metrics", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -1103,7 +1990,10 @@ type EmailsMetricsClientsParams struct {
 
 // Clients calls GET /emails/metrics/clients (emails.metrics.clients).
 //
-// Get opens by mail client
+// # Get opens by mail client
+//
+// Opens in a date range by the mail client that fetched the images. Needs a
+// full access key.
 func (s *EmailsMetricsService) Clients(ctx context.Context, params *EmailsMetricsClientsParams, opts ...RequestOption) (*ClientEngagementResponse, error) {
 	out := new(ClientEngagementResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.metrics.clients", method: "GET", path: "/emails/metrics/clients", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -1122,7 +2012,10 @@ type EmailsMetricsCountriesParams struct {
 
 // Countries calls GET /emails/metrics/countries (emails.metrics.countries).
 //
-// Get opens and clicks by country
+// # Get opens and clicks by country
+//
+// Opens and clicks in a date range by the reader's country, with people and
+// machines counted apart. Needs a full access key.
 func (s *EmailsMetricsService) Countries(ctx context.Context, params *EmailsMetricsCountriesParams, opts ...RequestOption) (*CountryEngagementResponse, error) {
 	out := new(CountryEngagementResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.metrics.countries", method: "GET", path: "/emails/metrics/countries", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -1143,7 +2036,10 @@ type EmailsMetricsLinksParams struct {
 
 // Links calls GET /emails/metrics/links (emails.metrics.links).
 //
-// Get clicks by link
+// # Get clicks by link
+//
+// Clicks in a date range by the link that was clicked, with people and
+// machines counted apart. Needs a full access key.
 func (s *EmailsMetricsService) Links(ctx context.Context, params *EmailsMetricsLinksParams, opts ...RequestOption) (*LinkClicksResponse, error) {
 	out := new(LinkClicksResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.metrics.links", method: "GET", path: "/emails/metrics/links", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -1168,9 +2064,9 @@ func newEmailsReceivingService(c *Client) *EmailsReceivingService {
 //
 // BillionSend extension: erases one received email now, its sealed content,
 // inbox memberships and received secrets with it, and threads it leaves empty.
-// Needs a full access key that is not scoped to an inbox; for an MCP token,
-// the owner or admin role. Webhook payloads already sent keep their metadata
-// until the payload retention strips them.
+// Needs a full access key that is not scoped to an inbox, from an owner, admin
+// or developer. Webhook payloads already sent keep their metadata until the
+// payload retention strips them.
 func (s *EmailsReceivingService) Delete(ctx context.Context, id string, opts ...RequestOption) (*DeleteReceivedEmailResponse, error) {
 	out := new(DeleteReceivedEmailResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.receiving.delete", method: "DELETE", path: "/emails/receiving/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -1240,10 +2136,12 @@ type EmailsReceivingListParams struct {
 	// matching mail newer than the cursor arrives; an empty list with 200 when
 	// none did
 	Wait *int64 `query:"wait"`
-	// BillionSend extension: only mail received after this instant; with wait and
-	// no cursor it defaults to one minute before the request
+	// BillionSend extension: only mail received after this instant; with wait it
+	// means mail that became visible after it (delivered, or released from
+	// screening), and with no cursor it defaults to one minute before the request
 	Since *string `query:"since"`
-	// BillionSend extension: only mail delivered into this inbox
+	// BillionSend extension: only mail delivered into this inbox, by inbox ID or
+	// email address (as in the /inboxes/{inbox_id} paths)
 	InboxID *string `query:"inbox_id"`
 	// BillionSend extension: only mail with this address in received_for
 	To *string `query:"to"`
@@ -1273,10 +2171,12 @@ type EmailsReceivingListParams struct {
 // inbox-scoped key mail delivered into its inbox. Mail held for screening or
 // in quarantine is left out unless a full access key asks for it
 // (include_quarantined, quarantined). With wait, the request is held until
-// matching mail arrives (long-poll). An inbox_id the key can't reach answers
-// 404 at once, without waiting; an inbox-scoped key naming another inbox gets
-// 403 restricted_api_key. Everything in a received email was written by
-// whoever sent it, so its HTML is safe to show only in a sandbox.
+// matching mail arrives (long-poll). The inbox_id filter takes an inbox ID or
+// its email address, as the /inboxes/{inbox_id} paths do. An inbox the key
+// can't reach answers 404 at once, without waiting; an inbox-scoped key naming
+// another inbox gets 403 restricted_api_key. Everything in a received email
+// was written by whoever sent it, so its HTML is safe to show only in a
+// sandbox.
 func (s *EmailsReceivingService) List(ctx context.Context, params *EmailsReceivingListParams, opts ...RequestOption) (*ListReceivedEmailsResponse, error) {
 	out := new(ListReceivedEmailsResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.receiving.list", method: "GET", path: "/emails/receiving", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
@@ -1402,6 +2302,142 @@ func (s *EmailsReceivingAttachmentsService) ListAll(ctx context.Context, emailID
 func (s *EmailsReceivingAttachmentsService) Text(ctx context.Context, emailID string, id string, opts ...RequestOption) (*GetReceivedAttachmentTextResponse, error) {
 	out := new(GetReceivedAttachmentTextResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.receiving.attachments.text", method: "GET", path: "/emails/receiving/{email_id}/attachments/{id}/text", pathParams: []string{"email_id", emailID, "id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EventsService groups the Events operations.
+type EventsService struct {
+	client *Client
+}
+
+func newEventsService(c *Client) *EventsService {
+	return &EventsService{client: c}
+}
+
+// Create calls POST /events (events.create).
+//
+// # Create an event
+//
+// Defines a custom event: its name and, optionally, a payload schema (a flat
+// map from key to string, number, boolean or date). The definition is only
+// used to check the payload of `events.send`; automations match an event by
+// name whether or not it is defined.
+func (s *EventsService) Create(ctx context.Context, body *CreateEventRequest, opts ...RequestOption) (*CreateEventResponse, error) {
+	out := new(CreateEventResponse)
+	if err := s.client.do(ctx, &call{operation: "events.create", method: "POST", path: "/events", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /events/{id_or_name} (events.get).
+//
+// # Retrieve an event
+//
+// By id or by name. A name with `/`, `%` or spaces goes through the path
+// URL-encoded.
+func (s *EventsService) Get(ctx context.Context, idOrName string, opts ...RequestOption) (*Event, error) {
+	out := new(Event)
+	if err := s.client.do(ctx, &call{operation: "events.get", method: "GET", path: "/events/{id_or_name}", pathParams: []string{"id_or_name", idOrName}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EventsListParams are the query and header parameters of EventsList.
+type EventsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /events (events.list).
+//
+// # List events
+//
+// The team's event definitions. Newest first, with cursor pagination: `after`
+// takes the last id of a page and pages toward older items, `before` takes the
+// first id and pages back toward newer ones.
+func (s *EventsService) List(ctx context.Context, params *EventsListParams, opts ...RequestOption) (*ListEventsResponse, error) {
+	out := new(ListEventsResponse)
+	if err := s.client.do(ctx, &call{operation: "events.list", method: "GET", path: "/events", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *EventsService) ListAll(ctx context.Context, params *EventsListParams, opts ...RequestOption) iter.Seq2[ListEventsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListEventsResponseDataItem, bool, error) {
+		p := EventsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListEventsResponseDataItem) string { return itemID(item) })
+}
+
+// Remove calls DELETE /events/{id_or_name} (events.remove).
+//
+// # Delete an event
+//
+// Removes the definition, and with it the payload check. Automations match by
+// name, so they are not affected, and the name can still be sent.
+func (s *EventsService) Remove(ctx context.Context, idOrName string, opts ...RequestOption) (*RemoveEventResponse, error) {
+	out := new(RemoveEventResponse)
+	if err := s.client.do(ctx, &call{operation: "events.remove", method: "DELETE", path: "/events/{id_or_name}", pathParams: []string{"id_or_name", idOrName}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Send calls POST /events/send (events.send).
+//
+// # Send an event
+//
+// Records an event for a contact, given by `contact_id` or by `email` (exactly
+// one). Every enabled automation whose trigger is this event name starts a run
+// for the contact, and runs waiting for this event continue. The event is
+// accepted whether or not it is defined or any automation matches; when it is
+// defined with a schema, the payload is checked against it and each typed
+// value is converted. A contact that does not exist yet is created when an
+// automation needs it. Retry with the same `Idempotency-Key` and the same body
+// to get the original answer instead of a second event.
+//
+// It always sends an Idempotency-Key: WithIdempotencyKey's, or a new UUID for this
+// call that its retries reuse.
+func (s *EventsService) Send(ctx context.Context, body *SendEventRequest, opts ...RequestOption) (*SendEventResponse, error) {
+	out := new(SendEventResponse)
+	if err := s.client.do(ctx, &call{operation: "events.send", method: "POST", path: "/events/send", pathParams: []string{}, idempotent: true, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Update calls PATCH /events/{id_or_name} (events.update).
+//
+// # Update an event
+//
+// Replaces the payload schema; `null` clears it. The name cannot change. Runs
+// already started are not affected: the schema is read only when an event is
+// sent.
+func (s *EventsService) Update(ctx context.Context, idOrName string, body *UpdateEventRequest, opts ...RequestOption) (*UpdateEventResponse, error) {
+	out := new(UpdateEventResponse)
+	if err := s.client.do(ctx, &call{operation: "events.update", method: "PATCH", path: "/events/{id_or_name}", pathParams: []string{"id_or_name", idOrName}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1569,11 +2605,31 @@ func newInboxesAgentService(c *Client) *InboxesAgentService {
 //
 // # Get agent settings
 //
-// Hosted-agent settings. BillionSend runs no agent of its own, so an inbox
-// never has one.
+// The instructions, tone and allowed actions saved for this inbox's agent;
+// empty until a first update. BillionSend stores these settings and runs no
+// agent of its own: your own agent reads them (an inbox-scoped key can read
+// its inbox's) and acts on the inbox through the API or MCP.
 func (s *InboxesAgentService) Get(ctx context.Context, inboxID string, opts ...RequestOption) (*InboxAgent, error) {
 	out := new(InboxAgent)
 	if err := s.client.do(ctx, &call{operation: "inboxes.agent.get", method: "GET", path: "/inboxes/{inbox_id}/agent", pathParams: []string{"inbox_id", inboxID}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Update calls PATCH /inboxes/{inbox_id}/agent (inboxes.agent.update).
+//
+// # Update agent settings
+//
+// Saves the instructions, tone and allowed actions of this inbox's agent. Send
+// at least one field; a field left out keeps its value, `null` clears
+// instructions or tone, and `actions` replaces the list. BillionSend stores
+// these settings and runs no agent of its own: your own agent reads them (an
+// inbox-scoped key can read its inbox's) and acts on the inbox through the API
+// or MCP. Needs a developer role; an inbox-scoped key cannot change them.
+func (s *InboxesAgentService) Update(ctx context.Context, inboxID string, body *UpdateInboxAgentRequest, opts ...RequestOption) (*UpdateInboxAgentResponse, error) {
+	out := new(UpdateInboxAgentResponse)
+	if err := s.client.do(ctx, &call{operation: "inboxes.agent.update", method: "PATCH", path: "/inboxes/{inbox_id}/agent", pathParams: []string{"inbox_id", inboxID}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1742,12 +2798,12 @@ func (s *InboxesDraftsService) Reject(ctx context.Context, inboxID string, draft
 // # Send a draft
 //
 // Sends the draft from the inbox address; the body is optional and only ever
-// holds `headers`, which are not supported yet (an empty value is fine), and
-// an `Idempotency-Key` is accepted. Answers the sent email's id. A draft
-// waiting for approval goes out only when a person or a team-wide full access
-// key sends it (403 approval_required otherwise), and their send skips the
-// inbox's rules but never the team's limits or the shared domain's rules. An
-// agent's send of a draft runs the rules and may hold it (202).
+// holds `headers`, which are not supported (an empty value is fine), and an
+// `Idempotency-Key` is accepted. Answers the sent email's id. A draft waiting
+// for approval goes out only when a person or a team-wide full access key
+// sends it (403 approval_required otherwise), and their send skips the inbox's
+// rules but never the team's limits or the shared domain's rules. An agent's
+// send of a draft runs the rules and may hold it (202).
 //
 // It always sends an Idempotency-Key: WithIdempotencyKey's, or a new UUID for this
 // call that its retries reuse.
@@ -1840,9 +2896,9 @@ type InboxesEventsStreamInboxParams struct {
 // # Stream one inbox's events
 //
 // BillionSend extension: the event stream of one inbox, as GET
-// /inboxes/events, ending when the inbox is deleted or expires. An
-// inbox-scoped key may stream its own inbox, without the events about held
-// mail.
+// /inboxes/events, ending when the inbox is deleted or expires; it carries
+// inbox.deleted and inbox.expired whatever types names. An inbox-scoped key
+// may stream its own inbox, without the events about held mail.
 func (s *InboxesEventsService) StreamInbox(ctx context.Context, inboxID string, params *InboxesEventsStreamInboxParams, opts ...RequestOption) (*EventStream, error) {
 	return s.client.stream(ctx, &call{operation: "inboxes.events.streamInbox", method: "GET", path: "/inboxes/{inbox_id}/events", pathParams: []string{"inbox_id", inboxID}, idempotent: false, noAuth: false, params: params}, []string{"inbox.deleted", "inbox.expired"}, opts)
 }
@@ -2393,6 +3449,149 @@ func (s *InboxesThreadsLabelsService) Set(ctx context.Context, inboxID string, t
 	return out, nil
 }
 
+// LogsService groups the Logs operations.
+type LogsService struct {
+	client *Client
+}
+
+func newLogsService(c *Client) *LogsService {
+	return &LogsService{client: c}
+}
+
+// Get calls GET /logs/{id} (logs.get).
+//
+// # Retrieve a log
+//
+// One logged request with its JSON request and response bodies. Bodies were
+// redacted when stored: html, text and attachment data are size markers,
+// tokens and secrets are `[redacted]`. A caller acting as a person whose role
+// lacks developer access gets null bodies; an API key always gets them.
+func (s *LogsService) Get(ctx context.Context, id string, opts ...RequestOption) (*GetLogResponse, error) {
+	out := new(GetLogResponse)
+	if err := s.client.do(ctx, &call{operation: "logs.get", method: "GET", path: "/logs/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// LogsListParams are the query and header parameters of LogsList.
+type LogsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /logs (logs.list).
+//
+// # List request logs
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones. Every authenticated request the team's keys and connected
+// apps made, this one included; the bodies come with Retrieve a log.
+func (s *LogsService) List(ctx context.Context, params *LogsListParams, opts ...RequestOption) (*ListLogsResponse, error) {
+	out := new(ListLogsResponse)
+	if err := s.client.do(ctx, &call{operation: "logs.list", method: "GET", path: "/logs", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *LogsService) ListAll(ctx context.Context, params *LogsListParams, opts ...RequestOption) iter.Seq2[ListLogsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListLogsResponseDataItem, bool, error) {
+		p := LogsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListLogsResponseDataItem) string { return itemID(item) })
+}
+
+// OAuthGrantsService groups the OAuthGrants operations.
+type OAuthGrantsService struct {
+	client *Client
+}
+
+func newOAuthGrantsService(c *Client) *OAuthGrantsService {
+	return &OAuthGrantsService{client: c}
+}
+
+// OAuthGrantsListParams are the query and header parameters of OAuthGrantsList.
+type OAuthGrantsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /oauth/grants (oauthGrants.list).
+//
+// # List OAuth grants
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones. The apps connected to the team, MCP clients among them,
+// that hold a grant in force.
+func (s *OAuthGrantsService) List(ctx context.Context, params *OAuthGrantsListParams, opts ...RequestOption) (*ListOAuthGrantsResponse, error) {
+	out := new(ListOAuthGrantsResponse)
+	if err := s.client.do(ctx, &call{operation: "oauthGrants.list", method: "GET", path: "/oauth/grants", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *OAuthGrantsService) ListAll(ctx context.Context, params *OAuthGrantsListParams, opts ...RequestOption) iter.Seq2[OAuthGrant, error] {
+	return paginate(func(after, before *string) ([]OAuthGrant, bool, error) {
+		p := OAuthGrantsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item OAuthGrant) string { return itemID(item) })
+}
+
+// Revoke calls DELETE /oauth/grants/{id} (oauthGrants.revoke).
+//
+// # Revoke an OAuth grant
+//
+// Ends the grant with every token issued under it: access tokens stop working
+// at once and the app has to ask for consent again. The grant's holder may
+// revoke it; otherwise the caller needs owner or admin access, and an
+// all-teams grant needs admin access to every team its holder belongs to. The
+// grant is deleted, so it is not listed afterwards.
+func (s *OAuthGrantsService) Revoke(ctx context.Context, id string, opts ...RequestOption) (*RevokeOAuthGrantResponse, error) {
+	out := new(RevokeOAuthGrantResponse)
+	if err := s.client.do(ctx, &call{operation: "oauthGrants.revoke", method: "DELETE", path: "/oauth/grants/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SegmentsService groups the Segments operations.
 type SegmentsService struct {
 	client   *Client
@@ -2607,6 +3806,10 @@ type SuppressionsListParams struct {
 	// Only suppressions of this origin: bounce, complaint or manual One of:
 	// "bounce", "complaint", "manual".
 	Origin *string `query:"origin"`
+	// BillionSend extension. email (default): entries for single addresses;
+	// domain: entries for a whole domain; all: both One of: "email", "domain",
+	// "all".
+	Kind *string `query:"kind"`
 }
 
 // List calls GET /suppressions (suppressions.list).
@@ -2653,7 +3856,7 @@ func newSuppressionsBatchService(c *Client) *SuppressionsBatchService {
 
 // Add calls POST /suppressions/batch/add (suppressions.batch.add).
 //
-// Add in bulk
+// Add suppressions in bulk
 func (s *SuppressionsBatchService) Add(ctx context.Context, body *BatchAddSuppressionsRequest, opts ...RequestOption) (*BatchAddSuppressionsResponse, error) {
 	out := new(BatchAddSuppressionsResponse)
 	if err := s.client.do(ctx, &call{operation: "suppressions.batch.add", method: "POST", path: "/suppressions/batch/add", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
@@ -2664,7 +3867,7 @@ func (s *SuppressionsBatchService) Add(ctx context.Context, body *BatchAddSuppre
 
 // Remove calls POST /suppressions/batch/remove (suppressions.batch.remove).
 //
-// Remove in bulk
+// Remove suppressions in bulk
 func (s *SuppressionsBatchService) Remove(ctx context.Context, body *BatchRemoveSuppressionsRequest, opts ...RequestOption) (*BatchRemoveSuppressionsResponse, error) {
 	out := new(BatchRemoveSuppressionsResponse)
 	if err := s.client.do(ctx, &call{operation: "suppressions.batch.remove", method: "POST", path: "/suppressions/batch/remove", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
@@ -2877,17 +4080,6 @@ func (s *UnsubscribesService) Create(ctx context.Context, body *CreateUnsubscrib
 	return out, nil
 }
 
-// Delete calls DELETE /unsubscribes/{id} (unsubscribes.delete).
-//
-// Delete an unsubscribe
-func (s *UnsubscribesService) Delete(ctx context.Context, id string, opts ...RequestOption) (*RemoveUnsubscribeResponse, error) {
-	out := new(RemoveUnsubscribeResponse)
-	if err := s.client.do(ctx, &call{operation: "unsubscribes.delete", method: "DELETE", path: "/unsubscribes/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // UnsubscribesListParams are the query and header parameters of UnsubscribesList.
 type UnsubscribesListParams struct {
 	// Page size, 1-100 (default 20)
@@ -2947,7 +4139,13 @@ func newUsageService(c *Client) *UsageService {
 
 // Get calls GET /usage (usage.get).
 //
-// Get usage
+// # Get usage
+//
+// What the team uses against what its plan allows: emails (the UTC day and the
+// billing period), contacts, segments, broadcasts, domains and the API rate
+// limit. BillionSend adds `plan`, `inboxes`, `webhook_endpoints`,
+// `verification` and the period's overage fields. A limit nothing caps is
+// null.
 func (s *UsageService) Get(ctx context.Context, opts ...RequestOption) (*UsageResponse, error) {
 	out := new(UsageResponse)
 	if err := s.client.do(ctx, &call{operation: "usage.get", method: "GET", path: "/usage", pathParams: []string{}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -3065,10 +4263,11 @@ func (s *VerificationsService) ListAll(ctx context.Context, params *Verification
 // WebhooksService groups the Webhooks operations.
 type WebhooksService struct {
 	client *Client
+	Events *WebhooksEventsService
 }
 
 func newWebhooksService(c *Client) *WebhooksService {
-	return &WebhooksService{client: c}
+	return &WebhooksService{client: c, Events: newWebhooksEventsService(c)}
 }
 
 // Create calls POST /webhooks (webhooks.create).
@@ -3149,7 +4348,7 @@ func (s *WebhooksService) ListAll(ctx context.Context, params *WebhooksListParam
 	}, startCursor(params), func(item ListWebhooksResponseDataItem) string { return itemID(item) })
 }
 
-// Rotate calls POST /webhooks/{id}/rotate (webhooks.rotate).
+// RotateSigningSecret calls POST /webhooks/{id}/signing-secret/rotate (webhooks.rotateSigningSecret).
 //
 // # Rotate signing secret
 //
@@ -3159,9 +4358,9 @@ func (s *WebhooksService) ListAll(ctx context.Context, params *WebhooksListParam
 // space-separated in webhook-signature, so the receiver can switch at any
 // point without a gap. A second rotation inside the window replaces the
 // previous secret.
-func (s *WebhooksService) Rotate(ctx context.Context, id string, body *RotateWebhookSecretRequest, opts ...RequestOption) (*RotateWebhookSecretResponse, error) {
+func (s *WebhooksService) RotateSigningSecret(ctx context.Context, id string, body *RotateWebhookSecretRequest, opts ...RequestOption) (*RotateWebhookSecretResponse, error) {
 	out := new(RotateWebhookSecretResponse)
-	if err := s.client.do(ctx, &call{operation: "webhooks.rotate", method: "POST", path: "/webhooks/{id}/rotate", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+	if err := s.client.do(ctx, &call{operation: "webhooks.rotateSigningSecret", method: "POST", path: "/webhooks/{id}/signing-secret/rotate", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -3176,4 +4375,141 @@ func (s *WebhooksService) Update(ctx context.Context, id string, body *UpdateWeb
 		return nil, err
 	}
 	return out, nil
+}
+
+// WebhooksEventsService groups the Webhooks Events operations.
+type WebhooksEventsService struct {
+	client   *Client
+	Attempts *WebhooksEventsAttemptsService
+}
+
+func newWebhooksEventsService(c *Client) *WebhooksEventsService {
+	return &WebhooksEventsService{client: c, Attempts: newWebhooksEventsAttemptsService(c)}
+}
+
+// Get calls GET /webhooks/{id}/events/{event_id} (webhooks.events.get).
+//
+// Retrieve a webhook event
+func (s *WebhooksEventsService) Get(ctx context.Context, id string, eventID string, opts ...RequestOption) (*GetWebhookEventResponse, error) {
+	out := new(GetWebhookEventResponse)
+	if err := s.client.do(ctx, &call{operation: "webhooks.events.get", method: "GET", path: "/webhooks/{id}/events/{event_id}", pathParams: []string{"id", id, "event_id", eventID}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WebhooksEventsListParams are the query and header parameters of WebhooksEventsList.
+type WebhooksEventsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /webhooks/{id}/events (webhooks.events.list).
+//
+// # List a webhook's events
+//
+// Every event the webhook was sent or is waiting to be sent, newest first.
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones.
+func (s *WebhooksEventsService) List(ctx context.Context, id string, params *WebhooksEventsListParams, opts ...RequestOption) (*ListWebhookEventsResponse, error) {
+	out := new(ListWebhookEventsResponse)
+	if err := s.client.do(ctx, &call{operation: "webhooks.events.list", method: "GET", path: "/webhooks/{id}/events", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *WebhooksEventsService) ListAll(ctx context.Context, id string, params *WebhooksEventsListParams, opts ...RequestOption) iter.Seq2[ListWebhookEventsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListWebhookEventsResponseDataItem, bool, error) {
+		p := WebhooksEventsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListWebhookEventsResponseDataItem) string { return itemID(item) })
+}
+
+// Replay calls POST /webhooks/{id}/events/{event_id}/replay (webhooks.events.replay).
+//
+// # Replay a webhook event
+//
+// Posts the event again: a new event with the same payload and the same
+// webhook-id, queued like any other (signed, paced and retried the usual way).
+// Returns the new event. Refused with 422 for a webhook that is disabled and
+// for an event whose payload the retention window has emptied.
+func (s *WebhooksEventsService) Replay(ctx context.Context, id string, eventID string, opts ...RequestOption) (*ReplayWebhookEventResponse, error) {
+	out := new(ReplayWebhookEventResponse)
+	if err := s.client.do(ctx, &call{operation: "webhooks.events.replay", method: "POST", path: "/webhooks/{id}/events/{event_id}/replay", pathParams: []string{"id", id, "event_id", eventID}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WebhooksEventsAttemptsService groups the Webhooks Events Attempts operations.
+type WebhooksEventsAttemptsService struct {
+	client *Client
+}
+
+func newWebhooksEventsAttemptsService(c *Client) *WebhooksEventsAttemptsService {
+	return &WebhooksEventsAttemptsService{client: c}
+}
+
+// WebhooksEventsAttemptsListParams are the query and header parameters of WebhooksEventsAttemptsList.
+type WebhooksEventsAttemptsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /webhooks/{id}/events/{event_id}/attempts (webhooks.events.attempts.list).
+//
+// # List an event's delivery attempts
+//
+// Every post made for the event, newest first. Newest first, with cursor
+// pagination: `after` takes the last id of a page and pages toward older
+// items, `before` takes the first id and pages back toward newer ones.
+func (s *WebhooksEventsAttemptsService) List(ctx context.Context, id string, eventID string, params *WebhooksEventsAttemptsListParams, opts ...RequestOption) (*ListWebhookEventAttemptsResponse, error) {
+	out := new(ListWebhookEventAttemptsResponse)
+	if err := s.client.do(ctx, &call{operation: "webhooks.events.attempts.list", method: "GET", path: "/webhooks/{id}/events/{event_id}/attempts", pathParams: []string{"id", id, "event_id", eventID}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *WebhooksEventsAttemptsService) ListAll(ctx context.Context, id string, eventID string, params *WebhooksEventsAttemptsListParams, opts ...RequestOption) iter.Seq2[ListWebhookEventAttemptsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListWebhookEventAttemptsResponseDataItem, bool, error) {
+		p := WebhooksEventsAttemptsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, id, eventID, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListWebhookEventAttemptsResponseDataItem) string { return itemID(item) })
 }

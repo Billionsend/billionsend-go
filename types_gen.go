@@ -68,9 +68,83 @@ type AgentSignupResponse struct {
 	Status string `json:"status"`
 }
 
+type AutomationConnection struct {
+	// Key of the step the connection leaves
+	From string `json:"from"`
+	// Key of the step it enters
+	To string `json:"to"`
+	// default (any step); condition_met / condition_not_met (a condition step);
+	// event_received / timeout (a wait_for_event step). Omitted: default. One of:
+	// "default", "condition_met", "condition_not_met", "timeout",
+	// "event_received".
+	Type *string `json:"type,omitempty"`
+}
+
+type AutomationIDResponse struct {
+	ID string `json:"id"`
+	// One of: "automation".
+	Object string `json:"object"`
+}
+
+type AutomationIssue struct {
+	// A stable code to switch on
+	Code string `json:"code"`
+	// draft: the document cannot be saved as it is. enable: it can be saved but
+	// not enabled. One of: "draft", "enable".
+	Layer string `json:"layer"`
+	// What is wrong
+	Message string `json:"message"`
+	// JSON Pointer into the submitted document, such as /steps/2/config/duration
+	Path string `json:"path"`
+	// What to change
+	Suggestion string `json:"suggestion"`
+}
+
+type AutomationMetricsResponse struct {
+	AutomationID string `json:"automation_id"`
+	// Results of the mail the automation sent (how many it accepted is its
+	// send_email steps' completed count): sent, delivered, delayed, bounced,
+	// complained, suppressed, opened, unique_opened, clicked, unique_clicked,
+	// unsubscribed
+	Emails  map[string]int64 `json:"emails"`
+	EndDate string           `json:"end_date"`
+	// One of: "automation_metrics".
+	Object    string                        `json:"object"`
+	Runs      AutomationMetricsResponseRuns `json:"runs"`
+	StartDate string                        `json:"start_date"`
+	// Every step of the current version, with zeros when nobody went through it
+	Steps []AutomationMetricsResponseStepsItem `json:"steps"`
+}
+
+type AutomationStep struct {
+	// By type. trigger: { event_name }. delay: { duration }, such as "1 hour" or
+	// "3 days", at most 30 days. send_email: { template: { id, variables? },
+	// subject?, from?, reply_to?, topic_id? }. wait_for_event: { event_name,
+	// timeout?, filter_rule? }. condition: a rule, { type: "rule", field,
+	// operator, value? } or { type: "and" | "or", rules }. contact_update: {
+	// first_name?, last_name?, unsubscribed?, properties? }. contact_delete: {}.
+	// add_to_segment: { segment_id }. A value may be { "var": "event.x" },
+	// "contact.x" or "wait_events.<event>.x" read when the step runs.
+	Config map[string]any `json:"config"`
+	// Step key, 1-64 characters from A-Z a-z 0-9 _ . -; unique in the automation
+	Key string `json:"key"`
+	// One of: "trigger", "delay", "send_email", "wait_for_event", "condition",
+	// "contact_update", "contact_delete", "add_to_segment".
+	Type string `json:"type"`
+}
+
 type BatchAddSuppressionsRequest struct {
+	// BillionSend extension: domains to block entirely (every address at that
+	// exact domain, subdomains not covered), up to 1000; recorded as manual
+	// entries, consumer mailbox providers such as gmail.com are refused. Their
+	// entries follow the emails' in the response
+	Domains []string `json:"domains,omitempty"`
 	// Addresses to block, up to 1000; duplicates collapse
-	Emails []string `json:"emails"`
+	Emails []string `json:"emails,omitempty"`
+	// BillionSend extension: why the entry is blocked, up to 500 characters; shown
+	// as its detail in the dashboard and returned as `note`. Stored on the rows
+	// this request creates; an entry that already exists keeps its own
+	Note *string `json:"note,omitempty"`
 	// Origin recorded on rows this request creates (default manual): bounce,
 	// complaint or manual; an address already suppressed keeps its origin One of:
 	// "bounce", "complaint", "manual".
@@ -137,10 +211,47 @@ type BatchRemoveSuppressionsRequest struct {
 
 type BatchRemoveSuppressionsResponse struct {
 	Data []RemoveSuppressionResponse `json:"data"`
+	// Matched entries that were left in place, with why
+	NotRemoved []BatchRemoveSuppressionsResponseNotRemovedItem `json:"not_removed"`
+}
+
+type Brand struct {
+	// Button and link color, #rrggbb; null is the built-in color
+	AccentColor *string `json:"accent_color"`
+	// Read-only: the plan has no branding (Free): recipients see the built-in look
+	// and logo; what is saved here applies again on a paid plan
+	BrandingLocked bool `json:"branding_locked"`
+	// Postal address shown in the page's footer; null shows none
+	CompanyAddress *string `json:"company_address"`
+	// Page font; null is the built-in font One of: "geist", "system", "serif",
+	// "mono".
+	Font *string `json:"font"`
+	// Read-only: the team's logo, shown on every domain's page that has no logo of
+	// its own; null when none is uploaded or this deployment has no logo storage.
+	// Set with PUT /brand/logo, removed with DELETE /brand/logo
+	LogoURL *string `json:"logo_url"`
+	// One of: "brand".
+	Object string `json:"object"`
+	// Whether "Powered by BillionSend" shows under the page of every domain that
+	// does not set its own powered_by. Always true on a plan that cannot hide it
+	PoweredBy bool `json:"powered_by"`
+	// Read-only: the plan cannot hide the line (Free), so it shows on every domain
+	// whatever is saved
+	PoweredByLocked bool `json:"powered_by_locked"`
+	// Whether the page lists the topics a recipient can switch
+	ShowTopics bool `json:"show_topics"`
 }
 
 type BroadcastIDResponse struct {
 	ID string `json:"id"`
+}
+
+type CancelAutomationRunResponse struct {
+	ID string `json:"id"`
+	// One of: "automation_run".
+	Object string `json:"object"`
+	// One of: "cancelled".
+	Status string `json:"status"`
 }
 
 type CancelBroadcastResponse struct {
@@ -157,6 +268,35 @@ type CancelEmailResponse struct {
 	Object string `json:"object"`
 }
 
+type ClaimDomainRequest struct {
+	// Rewrite links to redirect through the tracking host and record email.clicked
+	// events. Off by default.
+	ClickTracking *bool `json:"click_tracking,omitempty"`
+	// The MAIL FROM (return-path) subdomain, fixed when the domain is added: it
+	// cannot be changed later (delete and re-add the domain). Defaults to
+	// `bounce`, not `send`, so a domain that still sends through another provider
+	// whose return path is `send` keeps its bounces working while both send.
+	CustomReturnPath *string `json:"custom_return_path,omitempty"`
+	Name             string  `json:"name"`
+	// Inject a tracking pixel served from the tracking host and record
+	// email.opened events. Off by default.
+	OpenTracking *bool `json:"open_tracking,omitempty"`
+	// SES region of the identity, one of the regions this deployment serves (the
+	// values listed here). Without one, the team's default sending region from
+	// Settings is used, else the first listed. Any other region is rejected with
+	// 422. A domain has one region, fixed when it is added. One of: "us-east-1",
+	// "eu-west-1", "sa-east-1", "ap-northeast-1".
+	Region *string `json:"region,omitempty"`
+	// DNS label of the domain's own tracking host, e.g. "links" for
+	// links.<domain>. Optional: without one, tracked links use the shared tracking
+	// host. Setting it adds a Tracking CNAME to records[] (point it at the given
+	// value, DNS only); its certificate is issued automatically once it resolves,
+	// the Tracking record then reads verified, and links go through it from then
+	// on. A subdomain that does not activate within 72 hours reads failed; send
+	// the same tracking_subdomain again to retry.
+	TrackingSubdomain *string `json:"tracking_subdomain,omitempty"`
+}
+
 type ClientEngagementResponse struct {
 	Data    []ClientEngagementResponseDataItem `json:"data"`
 	EndDate string                             `json:"end_date"`
@@ -170,6 +310,17 @@ type ContactIDResponse struct {
 	ID string `json:"id"`
 	// One of: "contact".
 	Object string `json:"object"`
+}
+
+type ContactImport struct {
+	CompletedAt *string             `json:"completed_at"`
+	Counts      ContactImportCounts `json:"counts"`
+	CreatedAt   string              `json:"created_at"`
+	ID          string              `json:"id"`
+	// One of: "contact_import".
+	Object string `json:"object"`
+	// One of: "queued", "in_progress", "completed", "failed".
+	Status string `json:"status"`
 }
 
 type ContactPreferencesLinkResponse struct {
@@ -225,18 +376,47 @@ type CreateAPIKeyResponse struct {
 	Token string `json:"token"`
 }
 
+type CreateAutomationRequest struct {
+	// The connections between steps; give together with steps
+	Connections []AutomationConnection `json:"connections,omitempty"`
+	// BillionSend extension: canvas coordinates, { nodes: { <step key>: { x, y } }
+	// }, saved with the steps and read back by GET. Not part of the automation's
+	// meaning; give it together with steps.
+	Layout *CreateAutomationRequestLayout `json:"layout,omitempty"`
+	Name   string                         `json:"name"`
+	// Default disabled; an empty automation cannot be enabled One of: "enabled",
+	// "disabled".
+	Status *string `json:"status,omitempty"`
+	// The steps; give together with connections
+	Steps []AutomationStep `json:"steps,omitempty"`
+}
+
 type CreateBroadcastRequest struct {
+	// BillionSend extension: when true (the default), a contact who got 8 or more
+	// of your broadcasts and automation emails with no tracked open or click for
+	// 120 days (or ever) gets a short "still want these?" email with a confirm
+	// link instead of this broadcast, and is left out of later broadcasts if it
+	// does not confirm or engage within 14 days. Applies only when the sending
+	// domain has open or click tracking on. false sends the content to everyone
+	DormantCheck *bool `json:"dormant_check,omitempty"`
 	// Sender, "Name <user@domain>"; the domain must be one of the team's own
 	// verified domains when the broadcast is sent: sending from an address on the
-	// shared inbox domain answers 403
-	From string `json:"from"`
-	// HTML body; include {{{UNSUBSCRIBE_URL}}} for the opt-out link
+	// shared inbox domain answers 403. Required unless `template` supplies a
+	// default sender
+	From *string `json:"from,omitempty"`
+	// HTML body (not with `template`); put {{{UNSUBSCRIBE_URL}}} where the opt-out
+	// link goes. Without it (or {{{RESEND_UNSUBSCRIBE_URL}}}) a small Unsubscribe
+	// footer with the recipient's own link is added at the end when it is sent
 	HTML *string `json:"html,omitempty"`
+	// BillionSend extension: true also sends to contacts marked dormant (they did
+	// not answer a "still want these?" email). Default false
+	IncludeDormant *bool `json:"include_dormant,omitempty"`
 	// Internal name shown in the dashboard
 	Name *string `json:"name,omitempty"`
-	// Inbox preview (preheader) text
+	// Inbox preview (preheader) text; given with a template, it replaces the
+	// template's
 	PreviewText *string `json:"preview_text,omitempty"`
-	// Reply-To address or list
+	// Reply-To address or list; given with a template, it replaces the template's
 	ReplyTo any `json:"reply_to,omitempty"`
 	// Deliver later (requires send: true): ISO 8601 with offset or relative like
 	// "in 1 hour"
@@ -245,12 +425,23 @@ type CreateBroadcastRequest struct {
 	SegmentID *string `json:"segment_id,omitempty"`
 	// true sends (or schedules) immediately instead of saving a draft
 	Send *bool `json:"send,omitempty"`
-	// Subject line; supports {{{FIRST_NAME|there}}} merge fields
-	Subject string `json:"subject"`
-	// Plain-text body; at least one of html/text is required
+	// Subject line; supports {{{FIRST_NAME|there}}} merge fields. Required unless
+	// `template` supplies a default subject; given with a template, it replaces
+	// the template's
+	Subject  *string       `json:"subject,omitempty"`
+	Template *SendTemplate `json:"template,omitempty"`
+	// Plain-text body; at least one of html/text is required. Without
+	// {{{UNSUBSCRIBE_URL}}} (or {{{RESEND_UNSUBSCRIBE_URL}}}) in it, a last line
+	// with the recipient's unsubscribe link is added when it is sent
 	Text *string `json:"text,omitempty"`
 	// Topic id; only contacts subscribed to it receive the broadcast
 	TopicID *string `json:"topic_id,omitempty"`
+}
+
+type CreateContactImportResponse struct {
+	ID string `json:"id"`
+	// One of: "contact_import".
+	Object string `json:"object"`
 }
 
 type CreateContactPropertyRequest struct {
@@ -283,16 +474,21 @@ type CreateDomainRequest struct {
 	Capabilities *CreateDomainRequestCapabilities `json:"capabilities,omitempty"`
 	// Rewrite links to redirect through the tracking host and record email.clicked
 	// events. Off by default.
-	ClickTracking    *bool   `json:"click_tracking,omitempty"`
+	ClickTracking *bool `json:"click_tracking,omitempty"`
+	// The MAIL FROM (return-path) subdomain, fixed when the domain is added: it
+	// cannot be changed later (delete and re-add the domain). Defaults to
+	// `bounce`, not `send`, so a domain that still sends through another provider
+	// whose return path is `send` keeps its bounces working while both send.
 	CustomReturnPath *string `json:"custom_return_path,omitempty"`
 	Name             string  `json:"name"`
 	// Inject a tracking pixel served from the tracking host and record
 	// email.opened events. Off by default.
 	OpenTracking *bool `json:"open_tracking,omitempty"`
 	// SES region of the identity, one of the regions this deployment serves (the
-	// values listed here; the first is the default). Any other region is rejected
-	// with 422. A domain has one region, fixed when it is added. One of:
-	// "us-east-1", "eu-west-1", "sa-east-1", "ap-northeast-1".
+	// values listed here). Without one, the team's default sending region from
+	// Settings is used, else the first listed. Any other region is rejected with
+	// 422. A domain has one region, fixed when it is added. One of: "us-east-1",
+	// "eu-west-1", "sa-east-1", "ap-northeast-1".
 	Region *string `json:"region,omitempty"`
 	// DNS label of the domain's own tracking host, e.g. "links" for
 	// links.<domain>. Optional: without one, tracked links use the shared tracking
@@ -328,6 +524,12 @@ type CreateDomainResponse struct {
 	ReceivingCatchAll bool                              `json:"receiving_catch_all"`
 	Records           []CreateDomainResponseRecordsItem `json:"records"`
 	Region            string                            `json:"region"`
+	// BillionSend extension: a recipient who unsubscribed from this domain, or
+	// from the whole team, gets no mail from it at all, transactional mail
+	// included. Turn this on to send this domain's transactional mail (no topic,
+	// not a broadcast) to them anyway. Default false. Broadcasts and topic mail
+	// always respect the unsubscribe.
+	SendTransactionalToUnsubscribed bool `json:"send_transactional_to_unsubscribed"`
 	// BillionSend extension, on the shared row only: what its inboxes' addresses
 	// may send. open starts conversations, reply_only replies inside their
 	// threads, receive_only sends nothing. Holds on names still apply per send: an
@@ -336,8 +538,8 @@ type CreateDomainResponse struct {
 	// "reply_only", "receive_only".
 	SendingMode *string `json:"sending_mode,omitempty"`
 	// BillionSend extension, on the shared row only: what holds sending below
-	// open: the team's plan or the instance; null when open One of: "plan",
-	// "instance".
+	// open: plan when the team's plan holds it, platform when the platform's
+	// sending switches do; null when open One of: "plan", "platform".
 	SendingModeReason *string `json:"sending_mode_reason,omitempty"`
 	// BillionSend extension: true on the team's subdomain of the shared inbox
 	// domain, a read-only row listed after the team's own domains (403 on changes)
@@ -357,7 +559,8 @@ type CreateDomainResponse struct {
 	UnsubscribeError *string `json:"unsubscribe_error"`
 	// BillionSend extension: this domain's own look for its unsubscribe pages. A
 	// null field falls back to the team's default page, then to the built-in
-	// default.
+	// default. On a plan without branding (Free) recipients see the built-in look
+	// and logo whatever is saved; the saved look applies again on a paid plan.
 	UnsubscribePage CreateDomainResponseUnsubscribePage `json:"unsubscribe_page"`
 	// BillionSend extension: where the unsubscribe subdomain stands: pending,
 	// active (unsubscribe links go through it) or failed (links use the shared
@@ -368,6 +571,22 @@ type CreateDomainResponse struct {
 	// BillionSend extension: the domain's own unsubscribe host label, null when
 	// unset
 	UnsubscribeSubdomain *string `json:"unsubscribe_subdomain"`
+}
+
+type CreateEventRequest struct {
+	// Event name: 1-255 characters, case sensitive; the billionsend: prefix and
+	// the other system prefixes are reserved and refused.
+	Name string `json:"name"`
+	// Payload schema: a flat map from payload key to string, number, boolean or
+	// date. When set, events.send checks the payload against it and converts each
+	// typed value; keys not named pass unchanged. null clears it.
+	Schema map[string]string `json:"schema,omitempty"`
+}
+
+type CreateEventResponse struct {
+	ID string `json:"id"`
+	// One of: "event".
+	Object string `json:"object"`
 }
 
 type CreateInboxDraftRequest struct {
@@ -438,11 +657,10 @@ type CreateInboxRequest struct {
 	// never cut short. Reserved names (postmaster, abuse, admin, security,
 	// support, noreply, no-reply, billing, hostmaster, webmaster, mailer-daemon,
 	// root, compared without dots, hyphens and underscores), the fwd- prefix and
-	// brand look-alikes answer 422, and one already in use 409. Where the instance
-	// reviews names, a chosen one is reviewed first: 503 with retry-after while
-	// that review is unavailable. Omitted: a random one. With a domain_id of one
-	// of your domains, it is the part before the @ there, required, under
-	// email_address's rule.
+	// brand look-alikes answer 422, and one already in use 409. A chosen name is
+	// reviewed first: 503 with retry-after while that review is unavailable.
+	// Omitted: a random one. With a domain_id of one of your domains, it is the
+	// part before the @ there, required, under email_address's rule.
 	Username *string `json:"username,omitempty"`
 }
 
@@ -458,8 +676,16 @@ type CreateSegmentRequest struct {
 }
 
 type CreateSuppressionRequest struct {
+	// BillionSend extension: block every address at this exact domain (subdomains
+	// are not covered), instead of one email. Recorded as a manual entry; consumer
+	// mailbox providers such as gmail.com are refused
+	Domain *string `json:"domain,omitempty"`
 	// Bare email address to block; stored normalized (lowercase)
-	Email string `json:"email"`
+	Email *string `json:"email,omitempty"`
+	// BillionSend extension: why the entry is blocked, up to 500 characters; shown
+	// as its detail in the dashboard and returned as `note`. Stored on the rows
+	// this request creates; an entry that already exists keeps its own
+	Note *string `json:"note,omitempty"`
 	// Origin recorded on rows this request creates (default manual): bounce,
 	// complaint or manual; an address already suppressed keeps its origin One of:
 	// "bounce", "complaint", "manual".
@@ -469,19 +695,21 @@ type CreateSuppressionRequest struct {
 type CreateTemplateRequest struct {
 	// Case-sensitive handle, unique per team; GET /templates/{alias} resolves it
 	Alias *string `json:"alias,omitempty"`
-	// Not supported yet: any value is a 422
+	// Default sender; a send's own `from` replaces it. null clears it
 	From *string `json:"from,omitempty"`
 	// Stored as sent; the dashboard sanitizes at render
 	HTML string `json:"html"`
 	Name string `json:"name"`
-	// Not supported yet: any value is a 422
+	// Default Reply-To address or list; a send's own `reply_to` replaces it. null
+	// clears it
 	ReplyTo any `json:"reply_to,omitempty"`
 	// "" or null clears the subject
 	Subject *string `json:"subject,omitempty"`
 	// "" or null clears the text part
 	Text *string `json:"text,omitempty"`
-	// Not supported yet: a non-empty list is a 422
-	Variables []any `json:"variables,omitempty"`
+	// The variables the content uses, up to 50; the list replaces the declared
+	// ones, [] clears them
+	Variables []TemplateVariableInput `json:"variables,omitempty"`
 }
 
 type CreateTopicRequest struct {
@@ -515,10 +743,12 @@ type CreateWebhookRequest struct {
 	// "email.prefetched", "email.received", "deliverability.warning",
 	// "deliverability.paused", "quota.warning", "quota.reached", "quota.paused",
 	// "contact.created", "contact.updated", "contact.deleted",
-	// "contact.unsubscribed", "contact.resubscribed", "contact.topic_opt_in",
-	// "contact.topic_opt_out", "suppression.added", "suppression.removed",
-	// "inbox.created", "inbox.updated", "inbox.deleted", "inbox.expired",
-	// "inbox.thread.created", "inbox.thread.folder.updated",
+	// "contact.topics.updated", "contact.unsubscribed", "contact.resubscribed",
+	// "suppression.added", "suppression.removed", "domain.created",
+	// "domain.updated", "domain.deleted", "topic.created", "topic.updated",
+	// "topic.deleted", "inbox.created", "inbox.updated", "inbox.deleted",
+	// "inbox.expired", "inbox.thread.created", "inbox.thread.folder.updated",
+	// "inbox.thread.assigned", "inbox.thread.unassigned",
 	// "inbox.thread.labels.updated", "inbox.email.received", "inbox.email.sent",
 	// "inbox.email.quarantined", "inbox.draft.created", "inbox.draft.updated",
 	// "inbox.draft.sent", "inbox.draft.deleted", "inbox.draft.send_failed".
@@ -562,7 +792,10 @@ type DeliverabilityResponse struct {
 	Band          *string  `json:"band"`
 	ComplaintRate float64  `json:"complaint_rate"`
 	ContentScore  *float64 `json:"content_score"`
-	EmailsSent    int64    `json:"emails_sent"`
+	// Each sending domain's own standing over the trailing 7 days (BillionSend
+	// extension). guardrail_status is the team as a whole
+	Domains    []DomainDeliverability `json:"domains"`
+	EmailsSent int64                  `json:"emails_sent"`
 	// One of: "ok", "warning", "paused".
 	GuardrailStatus         string  `json:"guardrail_status"`
 	HardBounceRate          float64 `json:"hard_bounce_rate"`
@@ -574,6 +807,75 @@ type DeliverabilityResponse struct {
 	ScoreVersion     int64    `json:"score_version"`
 	ScoredRecipients int64    `json:"scored_recipients"`
 	WindowDays       int64    `json:"window_days"`
+}
+
+type DomainClaim struct {
+	// Why a verified claim is held back: `pending_scheduled_emails` (the holder
+	// still has mail queued or broadcasts unfinished on the domain),
+	// `recent_owner_activity` (mail was sent from it in the last 7 days),
+	// `grace_period` (the holder added it less than 24 hours ago). BillionSend
+	// looks again every few minutes until the claim expires One of:
+	// "grace_period", "recent_owner_activity", "pending_scheduled_emails".
+	BlockedReason *string `json:"blocked_reason"`
+	CreatedAt     string  `json:"created_at"`
+	// The placeholder domain id: the id to use in `/domains/{id}/claim` and, once
+	// the claim completed, the id of the new domain. No domain exists under it
+	// before then; `DELETE /domains/{id}` on it cancels a live claim
+	DomainID *string `json:"domain_id"`
+	// Seven days after the claim was created
+	ExpiresAt string `json:"expires_at"`
+	// Why a failed claim failed: `domain_already_yours`,
+	// `plan_domain_limit_reached`, `region_unavailable` or `transfer_failed`
+	FailureReason *string `json:"failure_reason"`
+	// The claim's id
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// One of: "domain_claim".
+	Object string            `json:"object"`
+	Record DomainClaimRecord `json:"record"`
+	Region *string           `json:"region"`
+	// `pending` waits for the TXT record; `verified` means the proof was seen and
+	// the transfer is under way; `completed` means the domain is the team's;
+	// `blocked` means a safety check holds the transfer back (see
+	// `blocked_reason`); `expired`, `superseded` (another claim on the name
+	// completed), `canceled` and `failed` (see `failure_reason`) are the other
+	// ends One of: "pending", "verified", "completed", "blocked", "expired",
+	// "superseded", "canceled", "failed".
+	Status string `json:"status"`
+}
+
+type DomainDeliverability struct {
+	ComplaintRate float64 `json:"complaint_rate"`
+	Complaints    int64   `json:"complaints"`
+	Delivered     int64   `json:"delivered"`
+	// The sending domain's name; null for the shared-domain addresses
+	Domain *string `json:"domain"`
+	// The sending domain's id; null for the team's shared-domain addresses
+	DomainID *string `json:"domain_id"`
+	// Emails sent from the domain in the window
+	EmailsSent     int64   `json:"emails_sent"`
+	HardBounceRate float64 `json:"hard_bounce_rate"`
+	HardBounces    int64   `json:"hard_bounces"`
+	// 1 minus the rate over its pause line, on the metric nearer to its line
+	// (recent rates): 1 with no events, 0 at the line, negative past it
+	PauseMargin float64 `json:"pause_margin"`
+	// Whether the domain's mail is paused by its own rates, by the team's as a
+	// whole, or both; null when not paused One of: "domain", "team", "both".
+	PausedBy *string `json:"paused_by"`
+	// Complaint rate over today and yesterday (UTC)
+	RecentComplaintRate float64 `json:"recent_complaint_rate"`
+	// Hard-bounce rate over today and yesterday (UTC), the window the pause line
+	// judges
+	RecentHardBounceRate float64 `json:"recent_hard_bounce_rate"`
+	// The domain's own standing, judged on its own mail with the team's windows
+	// and lines. paused refuses new sends from this domain (403
+	// domain_sending_paused) while the team's other domains keep sending One of:
+	// "ok", "warning", "paused".
+	Status string `json:"status"`
+	// status, or insufficient while the window holds fewer than 100 sends and no
+	// line has fired One of: "ok", "warning", "paused", "insufficient".
+	Tier       string `json:"tier"`
+	WindowDays int64  `json:"window_days"`
 }
 
 type DuplicateBroadcastResponse struct {
@@ -623,6 +925,44 @@ type EstimateVerificationResponse struct {
 	Unverified int64 `json:"unverified"`
 }
 
+type Event struct {
+	CreatedAt string `json:"created_at"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	// One of: "event".
+	Object    string            `json:"object"`
+	Schema    map[string]string `json:"schema"`
+	UpdatedAt *string           `json:"updated_at"`
+}
+
+type GetAutomationResponse struct {
+	Connections []GetAutomationResponseConnectionsItem `json:"connections"`
+	CreatedAt   string                                 `json:"created_at"`
+	ID          string                                 `json:"id"`
+	// BillionSend extension: the canvas coordinates saved with the current
+	// version; absent when the canvas saved none
+	Layout *GetAutomationResponseLayout `json:"layout,omitempty"`
+	Name   string                       `json:"name"`
+	// One of: "automation".
+	Object string `json:"object"`
+	// One of: "enabled", "disabled".
+	Status    string                           `json:"status"`
+	Steps     []GetAutomationResponseStepsItem `json:"steps"`
+	UpdatedAt *string                          `json:"updated_at"`
+}
+
+type GetAutomationRunResponse struct {
+	CompletedAt *string `json:"completed_at"`
+	CreatedAt   string  `json:"created_at"`
+	ID          string  `json:"id"`
+	// One of: "automation_run".
+	Object    string  `json:"object"`
+	StartedAt *string `json:"started_at"`
+	// One of: "running", "completed", "failed", "cancelled".
+	Status string                              `json:"status"`
+	Steps  []GetAutomationRunResponseStepsItem `json:"steps"`
+}
+
 type GetBroadcastResponse struct {
 	CreatedAt string `json:"created_at"`
 	// BillionSend extension: the domain of yours that from is on, set whenever
@@ -630,6 +970,9 @@ type GetBroadcastResponse struct {
 	// from the links. null while from is not on a domain of yours (the broadcast
 	// is sent only once it is).
 	DomainID *string `json:"domain_id"`
+	// BillionSend extension: whether long-unengaged contacts get the "still want
+	// these?" email instead
+	DormantCheck bool `json:"dormant_check"`
 	// BillionSend extension: when the broadcast failed; null unless status is
 	// failed
 	FailedAt *string `json:"failed_at"`
@@ -648,7 +991,9 @@ type GetBroadcastResponse struct {
 	From       string  `json:"from"`
 	HTML       *string `json:"html"`
 	ID         string  `json:"id"`
-	Name       *string `json:"name"`
+	// BillionSend extension: whether contacts marked dormant are included
+	IncludeDormant bool    `json:"include_dormant"`
+	Name           *string `json:"name"`
 	// One of: "broadcast".
 	Object      string   `json:"object"`
 	PreviewText *string  `json:"preview_text"`
@@ -694,13 +1039,15 @@ type GetContactResponse struct {
 	// whose email carried the link (see unsubscribed_domains).
 	Unsubscribed bool `json:"unsubscribed"`
 	// BillionSend extension: the domains this contact unsubscribed from through a
-	// link in their email. Marketing sends from those domains skip the contact;
-	// other domains still reach them. The team-wide opt-out is `unsubscribed`, not
-	// an entry here. Remove an entry with DELETE /unsubscribes/{id}.
+	// link in their email. Mail from those domains skips the contact,
+	// transactional mail too unless the domain turned on
+	// `send_transactional_to_unsubscribed`; other domains still reach them. The
+	// team-wide switch is `unsubscribed`, not an entry here. An opt-out is
+	// permanent: only the recipient can undo it, from the hosted unsubscribe page.
 	UnsubscribedDomains []GetContactResponseUnsubscribedDomainsItem `json:"unsubscribed_domains"`
 	// BillionSend extension: the verdict of the contact's last deep verification
 	// (POST /verifications); null while it was never verified One of: "valid",
-	// "invalid", "risky", "catchall", "role", "disposable", "unknown".
+	// "invalid", "risky", "catchall", "role", "disposable".
 	VerificationStatus *string `json:"verification_status"`
 	// When the last deep verification finished; null while never verified
 	VerifiedAt *string `json:"verified_at"`
@@ -720,6 +1067,16 @@ type GetDomainResponse struct {
 	ReceivingCatchAll bool                           `json:"receiving_catch_all"`
 	Records           []GetDomainResponseRecordsItem `json:"records"`
 	Region            string                         `json:"region"`
+	// BillionSend extension: a recipient who unsubscribed from this domain, or
+	// from the whole team, gets no mail from it at all, transactional mail
+	// included. Turn this on to send this domain's transactional mail (no topic,
+	// not a broadcast) to them anyway. Default false. Broadcasts and topic mail
+	// always respect the unsubscribe.
+	SendTransactionalToUnsubscribed bool `json:"send_transactional_to_unsubscribed"`
+	// BillionSend extension, on GET /domains/{id} only: the broadcast limit this
+	// domain's registrable name is under (only broadcasts are limited; API, SMTP
+	// and automation mail never are). Read-only.
+	SendingLimits *GetDomainResponseSendingLimits `json:"sending_limits,omitempty"`
 	// BillionSend extension, on the shared row only: what its inboxes' addresses
 	// may send. open starts conversations, reply_only replies inside their
 	// threads, receive_only sends nothing. Holds on names still apply per send: an
@@ -728,8 +1085,8 @@ type GetDomainResponse struct {
 	// "reply_only", "receive_only".
 	SendingMode *string `json:"sending_mode,omitempty"`
 	// BillionSend extension, on the shared row only: what holds sending below
-	// open: the team's plan or the instance; null when open One of: "plan",
-	// "instance".
+	// open: plan when the team's plan holds it, platform when the platform's
+	// sending switches do; null when open One of: "plan", "platform".
 	SendingModeReason *string `json:"sending_mode_reason,omitempty"`
 	// BillionSend extension: true on the team's subdomain of the shared inbox
 	// domain, a read-only row listed after the team's own domains (403 on changes)
@@ -749,7 +1106,8 @@ type GetDomainResponse struct {
 	UnsubscribeError *string `json:"unsubscribe_error"`
 	// BillionSend extension: this domain's own look for its unsubscribe pages. A
 	// null field falls back to the team's default page, then to the built-in
-	// default.
+	// default. On a plan without branding (Free) recipients see the built-in look
+	// and logo whatever is saved; the saved look applies again on a paid plan.
 	UnsubscribePage GetDomainResponseUnsubscribePage `json:"unsubscribe_page"`
 	// BillionSend extension: where the unsubscribe subdomain stands: pending,
 	// active (unsubscribe links go through it) or failed (links use the shared
@@ -779,6 +1137,29 @@ type GetEmailResponse struct {
 	Subject     string   `json:"subject"`
 	Text        *string  `json:"text"`
 	To          []string `json:"to"`
+}
+
+type GetLogResponse struct {
+	CreatedAt string `json:"created_at"`
+	// The request path, without the query string
+	Endpoint string `json:"endpoint"`
+	// The request id: the x-request-id header of that request
+	ID string `json:"id"`
+	// HTTP method
+	Method string `json:"method"`
+	// One of: "log".
+	Object string `json:"object"`
+	// The JSON request body as stored: content (html, text, attachment data)
+	// replaced by a size marker, secrets by [redacted], bodies over 64 KB by {
+	// truncated, bytes }; null when there was none or the caller's role may not
+	// read bodies
+	RequestBody any `json:"request_body,omitempty"`
+	// The JSON response body, stored the same way
+	ResponseBody   any   `json:"response_body,omitempty"`
+	ResponseStatus int64 `json:"response_status"`
+	// The caller's User-Agent header, cut to 512 characters; null when the request
+	// sent none
+	UserAgent *string `json:"user_agent"`
 }
 
 type GetReceivedAttachmentResponse struct {
@@ -904,14 +1285,40 @@ type GetSegmentResponse struct {
 	Object string `json:"object"`
 }
 
+type GetSentAttachmentResponse struct {
+	// One of: "inline", "attachment".
+	ContentDisposition string  `json:"content_disposition"`
+	ContentID          *string `json:"content_id,omitempty"`
+	ContentType        string  `json:"content_type"`
+	// Signed link to the file's bytes, valid for one hour; it needs no API key
+	DownloadURL string  `json:"download_url"`
+	ExpiresAt   string  `json:"expires_at"`
+	Filename    *string `json:"filename,omitempty"`
+	ID          string  `json:"id"`
+	// One of: "attachment".
+	Object string `json:"object"`
+	// Decoded size in bytes
+	Size int64 `json:"size"`
+}
+
 type GetSuppressionResponse struct {
 	CreatedAt string `json:"created_at"`
-	Email     string `json:"email"`
-	ID        string `json:"id"`
+	// The blocked domain; null on an email entry
+	Domain *string `json:"domain"`
+	// The blocked address; null on a domain entry
+	Email *string `json:"email"`
+	ID    string  `json:"id"`
+	// BillionSend extension: an entry for one address, or for every address at one
+	// domain One of: "email", "domain".
+	Kind string `json:"kind"`
+	// BillionSend extension: why the entry was added; null on an entry SES wrote
+	Note *string `json:"note"`
 	// One of: "suppression".
 	Object string `json:"object"`
 	// One of: "bounce", "complaint", "manual".
 	Origin string `json:"origin"`
+	// BillionSend extension: false for a permanent entry (a bounce or a complaint)
+	Removable bool `json:"removable"`
 	// Email id whose bounce/complaint created the entry
 	SourceID *string `json:"source_id"`
 }
@@ -920,23 +1327,39 @@ type GetTemplateResponse struct {
 	Alias            *string `json:"alias"`
 	CreatedAt        string  `json:"created_at"`
 	CurrentVersionID string  `json:"current_version_id"`
-	From             any     `json:"from"`
+	From             *string `json:"from"`
 	// One of: "false".
 	HasUnpublishedVersions bool   `json:"has_unpublished_versions"`
 	HTML                   string `json:"html"`
 	ID                     string `json:"id"`
 	Name                   string `json:"name"`
 	// One of: "template".
-	Object      string `json:"object"`
-	PublishedAt string `json:"published_at"`
-	ReplyTo     any    `json:"reply_to"`
+	Object      string   `json:"object"`
+	PublishedAt string   `json:"published_at"`
+	ReplyTo     []string `json:"reply_to"`
 	// One of: "published".
-	Status    string  `json:"status"`
-	Subject   *string `json:"subject"`
-	Text      *string `json:"text"`
-	UpdatedAt string  `json:"updated_at"`
-	// Always empty
-	Variables []any `json:"variables"`
+	Status    string             `json:"status"`
+	Subject   *string            `json:"subject"`
+	Text      *string            `json:"text"`
+	UpdatedAt string             `json:"updated_at"`
+	Variables []TemplateVariable `json:"variables"`
+}
+
+type GetWebhookEventResponse struct {
+	CreatedAt string `json:"created_at"`
+	ID        string `json:"id"`
+	// When the next post is due; null once the event succeeded or failed for good
+	NextAttemptAt *string `json:"next_attempt_at"`
+	// One of: "webhook_event".
+	Object string `json:"object"`
+	// The event as posted. After the retention window the payload's data is
+	// emptied and the event can no longer be replayed.
+	Payload map[string]any `json:"payload"`
+	// pending: not posted yet. attempting: posted at least once and will be posted
+	// again. failed: retries ran out. success: a 2xx came back. One of: "success",
+	// "pending", "failed", "attempting".
+	Status string `json:"status"`
+	Type   string `json:"type"`
 }
 
 type GetWebhookResponse struct {
@@ -992,10 +1415,12 @@ type InboxAgent struct {
 	// One of: "draft_reply", "forward_thread", "add_labels", "assign_thread",
 	// "mark_as_spam", "archive", "move_to_trash".
 	Actions      []string `json:"actions"`
-	Instructions any      `json:"instructions"`
+	Instructions *string  `json:"instructions"`
 	// One of: "inbox_agent".
 	Object string `json:"object"`
-	Tone   any    `json:"tone"`
+	// One of: "concise_professional", "concise_casual", "expanded_professional",
+	// "expanded_casual".
+	Tone *string `json:"tone"`
 }
 
 type InboxDraft struct {
@@ -1041,8 +1466,7 @@ type InboxForwardRequest struct {
 	BCC any `json:"bcc,omitempty"`
 	// An address or a list of them; "Name <address>" works too
 	CC any `json:"cc,omitempty"`
-	// Not supported yet: only an empty value is accepted, anything else answers
-	// 422
+	// Not supported: only an empty value is accepted, anything else answers 422
 	Headers any `json:"headers,omitempty"`
 	// HTML body
 	HTML *string `json:"html,omitempty"`
@@ -1085,8 +1509,7 @@ type InboxReplyRequest struct {
 	BCC any `json:"bcc,omitempty"`
 	// An address or a list of them; "Name <address>" works too
 	CC any `json:"cc,omitempty"`
-	// Not supported yet: only an empty value is accepted, anything else answers
-	// 422
+	// Not supported: only an empty value is accepted, anything else answers 422
 	Headers any `json:"headers,omitempty"`
 	// HTML body
 	HTML *string `json:"html,omitempty"`
@@ -1130,9 +1553,8 @@ type InboxSafety struct {
 	// Unattended recipients per UTC day; null: no cap. 1-50 on the shared domain
 	SendCap *int64 `json:"send_cap"`
 	// What the inbox may send without a person's approval. On the shared domain
-	// "allowlist" answers 422, and so does "open" unless the instance lets the
-	// team start conversations there (paid plans only) One of: "reply_only",
-	// "allowlist", "open".
+	// "allowlist" answers 422, and so does "open" unless the team is on a paid
+	// plan and past its first sends One of: "reply_only", "allowlist", "open".
 	SendPolicy string `json:"send_policy"`
 }
 
@@ -1160,11 +1582,10 @@ type InboxSafetyPatch struct {
 	// Score external mail for prompt injection (agent inboxes only)
 	Screening *bool `json:"screening,omitempty"`
 	// Unattended recipients per UTC day; null: no cap. 1-50 on the shared domain
-	SendCap *int64 `json:"send_cap,omitempty"`
+	SendCap *Nullable[int64] `json:"send_cap,omitempty"`
 	// What the inbox may send without a person's approval. On the shared domain
-	// "allowlist" answers 422, and so does "open" unless the instance lets the
-	// team start conversations there (paid plans only) One of: "reply_only",
-	// "allowlist", "open".
+	// "allowlist" answers 422, and so does "open" unless the team is on a paid
+	// plan and past its first sends One of: "reply_only", "allowlist", "open".
 	SendPolicy *string `json:"send_policy,omitempty"`
 }
 
@@ -1176,8 +1597,7 @@ type InboxSendRequest struct {
 	BCC any `json:"bcc,omitempty"`
 	// An address or a list of them; "Name <address>" works too
 	CC any `json:"cc,omitempty"`
-	// Not supported yet: only an empty value is accepted, anything else answers
-	// 422
+	// Not supported: only an empty value is accepted, anything else answers 422
 	Headers any `json:"headers,omitempty"`
 	// HTML body
 	HTML *string `json:"html,omitempty"`
@@ -1235,9 +1655,44 @@ type ListAPIKeysResponse struct {
 	Object string `json:"object"`
 }
 
+type ListAutomationRunsResponse struct {
+	Data    []ListAutomationRunsResponseDataItem `json:"data"`
+	HasMore bool                                 `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListAutomationsResponse struct {
+	Data    []ListAutomationsResponseDataItem `json:"data"`
+	HasMore bool                              `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListBroadcastClickedLinksResponse struct {
+	Data    []ListBroadcastClickedLinksResponseDataItem `json:"data"`
+	HasMore bool                                        `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListBroadcastRecipientsResponse struct {
+	Data    []ListBroadcastRecipientsResponseDataItem `json:"data"`
+	HasMore bool                                      `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
 type ListBroadcastsResponse struct {
 	Data    []ListBroadcastsResponseDataItem `json:"data"`
 	HasMore bool                             `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListContactImportsResponse struct {
+	Data    []ContactImport `json:"data"`
+	HasMore bool            `json:"has_more"`
 	// One of: "list".
 	Object string `json:"object"`
 }
@@ -1278,6 +1733,13 @@ type ListEmailsResponse struct {
 	Object string `json:"object"`
 }
 
+type ListEventsResponse struct {
+	Data    []ListEventsResponseDataItem `json:"data"`
+	HasMore bool                         `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
 type ListInboxDraftsResponse struct {
 	Data    []ListInboxDraftsResponseDataItem `json:"data"`
 	HasMore bool                              `json:"has_more"`
@@ -1312,6 +1774,20 @@ type ListInboxesResponse struct {
 	Object string `json:"object"`
 }
 
+type ListLogsResponse struct {
+	Data    []ListLogsResponseDataItem `json:"data"`
+	HasMore bool                       `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListOAuthGrantsResponse struct {
+	Data    []OAuthGrant `json:"data"`
+	HasMore bool         `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
 type ListQuarantinedEmailsResponse struct {
 	Data    []ListQuarantinedEmailsResponseDataItem `json:"data"`
 	HasMore bool                                    `json:"has_more"`
@@ -1339,6 +1815,13 @@ type ListReceivedEmailsResponse struct {
 type ListSegmentsResponse struct {
 	Data    []ListSegmentsResponseDataItem `json:"data"`
 	HasMore bool                           `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListSentAttachmentsResponse struct {
+	Data    []ListSentAttachmentsResponseDataItem `json:"data"`
+	HasMore bool                                  `json:"has_more"`
 	// One of: "list".
 	Object string `json:"object"`
 }
@@ -1379,11 +1862,45 @@ type ListVerificationsResponse struct {
 	Object string `json:"object"`
 }
 
+type ListWebhookEventAttemptsResponse struct {
+	Data    []ListWebhookEventAttemptsResponseDataItem `json:"data"`
+	HasMore bool                                       `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
+type ListWebhookEventsResponse struct {
+	Data    []ListWebhookEventsResponseDataItem `json:"data"`
+	HasMore bool                                `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
 type ListWebhooksResponse struct {
 	Data    []ListWebhooksResponseDataItem `json:"data"`
 	HasMore bool                           `json:"has_more"`
 	// One of: "list".
 	Object string `json:"object"`
+}
+
+type LogoResponse struct {
+	// Public URL of the stored logo; it changes on every upload (a cache-buster)
+	LogoURL string `json:"logo_url"`
+	// One of: "logo".
+	Object string `json:"object"`
+}
+
+type OAuthGrant struct {
+	Client    OAuthGrantClient `json:"client"`
+	ClientID  string           `json:"client_id"`
+	CreatedAt string           `json:"created_at"`
+	// The grant id
+	ID string `json:"id"`
+	// Always null here: a revoked grant is deleted and no longer listed
+	RevokedAt *string `json:"revoked_at"`
+	// Always null here, as revoked_at
+	RevokedReason *string  `json:"revoked_reason"`
+	Scopes        []string `json:"scopes"`
 }
 
 type ReceivedEmailForwardRequest struct {
@@ -1464,6 +1981,14 @@ type RemoveAPIKeyResponse struct {
 	Object string `json:"object"`
 }
 
+type RemoveAutomationResponse struct {
+	// One of: "true".
+	Deleted bool   `json:"deleted"`
+	ID      string `json:"id"`
+	// One of: "automation".
+	Object string `json:"object"`
+}
+
 type RemoveBroadcastResponse struct {
 	// One of: "true".
 	Deleted bool   `json:"deleted"`
@@ -1511,6 +2036,14 @@ type RemoveEmailResponse struct {
 	Object string `json:"object"`
 }
 
+type RemoveEventResponse struct {
+	// One of: "true".
+	Deleted bool   `json:"deleted"`
+	ID      string `json:"id"`
+	// One of: "event".
+	Object string `json:"object"`
+}
+
 type RemoveInboxLabelResponse struct {
 	// One of: "true".
 	Deleted bool   `json:"deleted"`
@@ -1531,6 +2064,13 @@ type RemoveInboxThreadResponse struct {
 	Deleted bool   `json:"deleted"`
 	ID      string `json:"id"`
 	// One of: "inbox_thread".
+	Object string `json:"object"`
+}
+
+type RemoveLogoResponse struct {
+	// One of: "true".
+	Deleted bool `json:"deleted"`
+	// One of: "logo".
 	Object string `json:"object"`
 }
 
@@ -1566,20 +2106,27 @@ type RemoveTopicResponse struct {
 	Object string `json:"object"`
 }
 
-type RemoveUnsubscribeResponse struct {
-	// One of: "true".
-	Deleted bool   `json:"deleted"`
-	ID      string `json:"id"`
-	// One of: "unsubscribe".
-	Object string `json:"object"`
-}
-
 type RemoveWebhookResponse struct {
 	// One of: "true".
 	Deleted bool   `json:"deleted"`
 	ID      string `json:"id"`
 	// One of: "webhook".
 	Object string `json:"object"`
+}
+
+type ReplayWebhookEventResponse struct {
+	// The new event: same payload and webhook-id, posted again
+	ID string `json:"id"`
+	// One of: "webhook_event".
+	Object string `json:"object"`
+}
+
+type RevokeOAuthGrantResponse struct {
+	ID string `json:"id"`
+	// One of: "oauth_grant".
+	Object        string `json:"object"`
+	RevokedAt     string `json:"revoked_at"`
+	RevokedReason string `json:"revoked_reason"`
 }
 
 type RotateWebhookSecretRequest struct {
@@ -1648,26 +2195,28 @@ type SendEmailRequest struct {
 	// Cc address or list
 	CC any `json:"cc,omitempty"`
 	// Sender, "Name <user@domain>" or bare address; the domain must be verified
-	// for the team
-	From string `json:"from"`
+	// for the team. Required unless `template` supplies a default sender
+	From *string `json:"from,omitempty"`
 	// Extra message headers (transport headers are rejected)
 	Headers map[string]string `json:"headers,omitempty"`
-	// HTML body; at least one of html/text is required
+	// HTML body; at least one of html/text is required, and neither goes with
+	// `template`
 	HTML *string `json:"html,omitempty"`
-	// Reply-To address or list
+	// Reply-To address or list; given with a template, it replaces the template's
 	ReplyTo any `json:"reply_to,omitempty"`
 	// Deliver later: ISO 8601 with offset, or relative like "in 2 hours" (an ISO
 	// 8601 datetime with offset (e.g. "2026-09-01T12:00:00Z") or a relative time
 	// like "in 5 mins", "in 2 hours", or "in 1 day"); max 30 days ahead
 	ScheduledAt *string `json:"scheduled_at,omitempty"`
-	// Subject line
-	Subject string `json:"subject"`
+	// Subject line. Required unless `template` supplies a default subject; given
+	// with a template, it replaces the template's
+	Subject *string `json:"subject,omitempty"`
 	// Key/value labels attached to the email for filtering; names starting with
 	// billionsend_, in any letter case, are reserved
-	Tags []SendEmailRequestTagsItem `json:"tags,omitempty"`
-	// Not supported: any value is a 422; an email takes html and/or text
-	Template any `json:"template,omitempty"`
-	// Plain-text body; at least one of html/text is required
+	Tags     []SendEmailRequestTagsItem `json:"tags,omitempty"`
+	Template *SendTemplate              `json:"template,omitempty"`
+	// Plain-text body; at least one of html/text is required, and neither goes
+	// with `template`
 	Text *string `json:"text,omitempty"`
 	// Recipient address or list of up to 50
 	To any `json:"to"`
@@ -1682,15 +2231,98 @@ type SendEmailResponse struct {
 	ID string `json:"id"`
 }
 
+type SendEventRequest struct {
+	// The contact to run the event for. Give this or email.
+	ContactID *string `json:"contact_id,omitempty"`
+	// The contact's email address; the contact is created when an automation needs
+	// it. Give this or contact_id.
+	Email *string `json:"email,omitempty"`
+	// Event name: 1-255 characters, case sensitive; the billionsend: prefix and
+	// the other system prefixes are reserved and refused.
+	Event string `json:"event"`
+	// Event data the automations read as event.<key>: a JSON object, at most 32 KB
+	// and 8 levels deep.
+	Payload map[string]any `json:"payload,omitempty"`
+}
+
+type SendEventResponse struct {
+	Event string `json:"event"`
+	// One of: "event".
+	Object string `json:"object"`
+}
+
 type SendInboxDraftRequest struct {
-	// Not supported yet: only an empty value is accepted, anything else answers
-	// 422
+	// Not supported: only an empty value is accepted, anything else answers 422
 	Headers any `json:"headers,omitempty"`
+}
+
+// BillionSend extension: build the broadcast from a template's newest
+// published version, as `POST /emails` does. The content is copied in when the
+// broadcast is created, with the variables filled in; later edits of the
+// template do not change the broadcast. Contact merge fields such as
+// {{{FIRST_NAME|there}}} stay in the content and are filled per recipient when
+// it is sent
+type SendTemplate struct {
+	// Id or alias of the template; its newest published version is used
+	ID string `json:"id"`
+	// Values for the template's declared variables: a string of up to 2000
+	// characters or a number, matching each variable's type. A declared variable
+	// left out takes its fallback_value; without one the send is a 422. Names the
+	// template does not declare are ignored
+	Variables map[string]any `json:"variables,omitempty"`
 }
 
 type SetInboxThreadLabelsRequest struct {
 	// Up to 100 label IDs of the inbox: exactly the labels the thread ends up with
 	Labels []string `json:"labels"`
+}
+
+type ShareEmailRequest struct {
+	// How long the link stays valid, as a duration such as `10m`, `2 hours` or `1
+	// day`. Defaults to 48 hours and cannot exceed it.
+	ExpiresIn *string `json:"expires_in,omitempty"`
+}
+
+type ShareEmailResponse struct {
+	ID string `json:"id"`
+	// One of: "email".
+	Object string `json:"object"`
+	// The public link. Anyone who holds it can read this one email until it
+	// expires or is revoked; it needs no API key
+	URL string `json:"url"`
+}
+
+type SimulateAutomationRequest struct {
+	// The contact the run is for: a real one by id or email, with any of the other
+	// fields laid over it, or a made-up one (an email with no contact) to try a
+	// case.
+	Contact SimulateAutomationRequestContact `json:"contact"`
+	// Events to hand to the waits, in order: each wait_for_event takes the
+	// earliest one of its name that passes its filter_rule; an event is taken
+	// once.
+	Events []SimulateAutomationRequestEventsItem `json:"events,omitempty"`
+	// The payload of the event that starts the run (what event.* reads)
+	Payload map[string]any `json:"payload,omitempty"`
+	// When the run starts; default now
+	StartAt *string `json:"start_at,omitempty"`
+}
+
+type SimulateAutomationResponse struct {
+	Contact SimulateAutomationResponseContact `json:"contact"`
+	// The mail the run would send, with the time. A send step whose recipient has
+	// opted out or is suppressed is skipped and listed in steps only.
+	Emails []SimulateAutomationResponseEmailsItem `json:"emails"`
+	// When the run would end, on the simulated clock
+	EndedAt string `json:"ended_at"`
+	// One of: "automation_simulation".
+	Object    string `json:"object"`
+	StartedAt string `json:"started_at"`
+	// How the run would end One of: "completed", "failed".
+	Status string `json:"status"`
+	// The steps in the order the run takes them
+	Steps []SimulateAutomationResponseStepsItem `json:"steps"`
+	// Events given that no wait took, by their position in the request
+	UnusedEvents []SimulateAutomationResponseUnusedEventsItem `json:"unused_events"`
 }
 
 type StartVerificationRequest struct {
@@ -1713,6 +2345,14 @@ type StartVerificationResponse struct {
 	Runs []StartVerificationResponseRunsItem `json:"runs"`
 }
 
+type StopAutomationResponse struct {
+	ID string `json:"id"`
+	// One of: "automation".
+	Object string `json:"object"`
+	// One of: "disabled".
+	Status string `json:"status"`
+}
+
 type SuppressionIDResponse struct {
 	ID string `json:"id"`
 	// One of: "suppression".
@@ -1723,6 +2363,25 @@ type TemplateIDResponse struct {
 	ID string `json:"id"`
 	// One of: "template".
 	Object string `json:"object"`
+}
+
+type TemplateVariable struct {
+	CreatedAt     string `json:"created_at"`
+	FallbackValue any    `json:"fallback_value"`
+	Key           string `json:"key"`
+	// One of: "string", "number".
+	Type      string `json:"type"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type TemplateVariableInput struct {
+	// Used when a send gives no value, and of the variable's type; without one the
+	// variable is required
+	FallbackValue any `json:"fallback_value,omitempty"`
+	// The name the content writes as {{{KEY}}}
+	Key string `json:"key"`
+	// One of: "string", "number".
+	Type string `json:"type"`
 }
 
 type TopicIDResponse struct {
@@ -1743,6 +2402,14 @@ type TopicResponse struct {
 	Visibility string `json:"visibility"`
 }
 
+type UnshareEmailResponse struct {
+	ID string `json:"id"`
+	// One of: "email".
+	Object string `json:"object"`
+	// How many live links the call ended
+	Revoked int64 `json:"revoked"`
+}
+
 type UnsubscribeResponse struct {
 	CreatedAt string `json:"created_at"`
 	// The domain's name; null for the whole team. A deleted domain's name stays,
@@ -1758,16 +2425,69 @@ type UnsubscribeResponse struct {
 	Object string `json:"object"`
 }
 
+type UpdateAPIKeyRequest struct {
+	Name string `json:"name"`
+}
+
+type UpdateAPIKeyResponse struct {
+	ID string `json:"id"`
+	// One of: "api_key".
+	Object string `json:"object"`
+}
+
+type UpdateAutomationRequest struct {
+	// The connections between steps; give together with steps
+	Connections []AutomationConnection `json:"connections,omitempty"`
+	// BillionSend extension: canvas coordinates, { nodes: { <step key>: { x, y } }
+	// }, saved with the steps and read back by GET. Not part of the automation's
+	// meaning; give it together with steps.
+	Layout *UpdateAutomationRequestLayout `json:"layout,omitempty"`
+	Name   *string                        `json:"name,omitempty"`
+	// One of: "enabled", "disabled".
+	Status *string `json:"status,omitempty"`
+	// The steps; give together with connections
+	Steps []AutomationStep `json:"steps,omitempty"`
+}
+
+// Fields not sent keep their value.
+type UpdateBrandRequest struct {
+	// Button and link color, #rrggbb; null (or an empty string) clears it
+	AccentColor *Nullable[string] `json:"accent_color,omitempty"`
+	// Postal address shown in the page's footer, max 200 characters; null (or an
+	// empty string) clears it
+	CompanyAddress *Nullable[string] `json:"company_address,omitempty"`
+	// Page font; null clears it back to the built-in font One of: "geist",
+	// "system", "serif", "mono".
+	Font *Nullable[string] `json:"font,omitempty"`
+	// Show "Powered by BillionSend" under the page (true) or hide it (false). A
+	// plan that cannot hide it (Free) saves true whatever is sent, as the
+	// dashboard does; the response then reads powered_by true and
+	// powered_by_locked true
+	PoweredBy *bool `json:"powered_by,omitempty"`
+	// List the topics a recipient can switch on the page
+	ShowTopics *bool `json:"show_topics,omitempty"`
+}
+
 type UpdateBroadcastRequest struct {
-	From        *string `json:"from,omitempty"`
-	HTML        *string `json:"html,omitempty"`
-	Name        *string `json:"name,omitempty"`
-	PreviewText *string `json:"preview_text,omitempty"`
-	ReplyTo     any     `json:"reply_to,omitempty"`
-	SegmentID   *string `json:"segment_id,omitempty"`
-	Subject     *string `json:"subject,omitempty"`
-	Text        *string `json:"text,omitempty"`
-	TopicID     *string `json:"topic_id,omitempty"`
+	// BillionSend extension: when true (the default), a contact who got 8 or more
+	// of your broadcasts and automation emails with no tracked open or click for
+	// 120 days (or ever) gets a short "still want these?" email with a confirm
+	// link instead of this broadcast, and is left out of later broadcasts if it
+	// does not confirm or engage within 14 days. Applies only when the sending
+	// domain has open or click tracking on. false sends the content to everyone
+	DormantCheck *bool   `json:"dormant_check,omitempty"`
+	From         *string `json:"from,omitempty"`
+	HTML         *string `json:"html,omitempty"`
+	// BillionSend extension: true also sends to contacts marked dormant (they did
+	// not answer a "still want these?" email). Default false
+	IncludeDormant *bool             `json:"include_dormant,omitempty"`
+	Name           *string           `json:"name,omitempty"`
+	PreviewText    *string           `json:"preview_text,omitempty"`
+	ReplyTo        any               `json:"reply_to,omitempty"`
+	SegmentID      *string           `json:"segment_id,omitempty"`
+	Subject        *string           `json:"subject,omitempty"`
+	Text           *string           `json:"text,omitempty"`
+	TopicID        *Nullable[string] `json:"topic_id,omitempty"`
 }
 
 type UpdateContactPropertyRequest struct {
@@ -1776,9 +2496,9 @@ type UpdateContactPropertyRequest struct {
 
 type UpdateContactRequest struct {
 	// First name; null clears it
-	FirstName *string `json:"first_name,omitempty"`
+	FirstName *Nullable[string] `json:"first_name,omitempty"`
 	// Last name; null clears it
-	LastName *string `json:"last_name,omitempty"`
+	LastName *Nullable[string] `json:"last_name,omitempty"`
 	// Custom properties to set (merged); null removes a key
 	Properties map[string]any `json:"properties,omitempty"`
 	// Global opt-out from all marketing sends
@@ -1802,14 +2522,23 @@ type UpdateDomainRequest struct {
 	// Rewrite links to redirect through the tracking host and record email.clicked
 	// events. Off by default.
 	ClickTracking *bool `json:"click_tracking,omitempty"`
+	// Not changeable: the return-path subdomain is fixed when the domain is added.
+	// Sending it answers 422; delete and re-add the domain to use another.
+	CustomReturnPath any `json:"custom_return_path,omitempty"`
 	// Inject a tracking pixel served from the tracking host and record
 	// email.opened events. Off by default.
 	OpenTracking *bool `json:"open_tracking,omitempty"`
 	// BillionSend extension: store mail to addresses without an inbox (true) or
-	// refuse it at RCPT (false). Turning it on needs receiving enabled and, on
-	// BillionSend Cloud, a paid plan.
+	// refuse it at RCPT (false). Turning it on needs receiving enabled and a paid
+	// plan.
 	ReceivingCatchAll *bool `json:"receiving_catch_all,omitempty"`
-	Tls               any   `json:"tls,omitempty"`
+	// BillionSend extension: a recipient who unsubscribed from this domain, or
+	// from the whole team, gets no mail from it at all, transactional mail
+	// included. Turn this on to send this domain's transactional mail (no topic,
+	// not a broadcast) to them anyway. Default false. Broadcasts and topic mail
+	// always respect the unsubscribe.
+	SendTransactionalToUnsubscribed *bool `json:"send_transactional_to_unsubscribed,omitempty"`
+	Tls                             any   `json:"tls,omitempty"`
 	// DNS label of the domain's own tracking host, e.g. "links" for
 	// links.<domain>. Optional: without one, tracked links use the shared tracking
 	// host. Setting it adds a Tracking CNAME to records[] (point it at the given
@@ -1817,11 +2546,11 @@ type UpdateDomainRequest struct {
 	// the Tracking record then reads verified, and links go through it from then
 	// on. A subdomain that does not activate within 72 hours reads failed; send
 	// the same tracking_subdomain again to retry. Empty string or null clears it.
-	TrackingSubdomain *string `json:"tracking_subdomain,omitempty"`
+	TrackingSubdomain *Nullable[string] `json:"tracking_subdomain,omitempty"`
 	// BillionSend extension: this domain's own look for its unsubscribe pages.
 	// Fields not sent keep their value; null clears one, and a cleared field falls
-	// back to the team's default page. logo_url is read-only here: the logo is
-	// uploaded in the dashboard.
+	// back to the team's default page. logo_url is read-only here: upload the logo
+	// with PUT /domains/{id}/unsubscribe-page/logo.
 	UnsubscribePage *UpdateDomainRequestUnsubscribePage `json:"unsubscribe_page,omitempty"`
 	// BillionSend extension: DNS label of the domain's own unsubscribe host, e.g.
 	// "unsubscribe" for unsubscribe.<domain>. Optional: without one, unsubscribe
@@ -1834,7 +2563,7 @@ type UpdateDomainRequest struct {
 	// activate within 72 hours reads failed; send the same unsubscribe_subdomain
 	// again to retry. Kept apart from tracking_subdomain because ad blockers
 	// filter tracking hosts by name. Empty string or null clears it.
-	UnsubscribeSubdomain *string `json:"unsubscribe_subdomain,omitempty"`
+	UnsubscribeSubdomain *Nullable[string] `json:"unsubscribe_subdomain,omitempty"`
 }
 
 type UpdateEmailRequest struct {
@@ -1847,24 +2576,56 @@ type UpdateEmailResponse struct {
 	Object string `json:"object"`
 }
 
+type UpdateEventRequest struct {
+	// Payload schema: a flat map from payload key to string, number, boolean or
+	// date. When set, events.send checks the payload against it and converts each
+	// typed value; keys not named pass unchanged. null clears it.
+	Schema map[string]string `json:"schema"`
+}
+
+type UpdateEventResponse struct {
+	ID string `json:"id"`
+	// One of: "event".
+	Object string `json:"object"`
+}
+
+type UpdateInboxAgentRequest struct {
+	// What your agent may do; replaces the list One of: "draft_reply",
+	// "forward_thread", "add_labels", "assign_thread", "mark_as_spam", "archive",
+	// "move_to_trash".
+	Actions []string `json:"actions,omitempty"`
+	// What your agent should do with this inbox's mail, up to 10,000 characters;
+	// null clears it
+	Instructions *Nullable[string] `json:"instructions,omitempty"`
+	// How replies should read; null clears it One of: "concise_professional",
+	// "concise_casual", "expanded_professional", "expanded_casual".
+	Tone *Nullable[string] `json:"tone,omitempty"`
+}
+
+type UpdateInboxAgentResponse struct {
+	ID string `json:"id"`
+	// One of: "inbox_agent".
+	Object string `json:"object"`
+}
+
 type UpdateInboxDraftRequest struct {
 	// Files with base64 `content` (no remote paths), 10 MiB decoded in all; none
 	// on the shared domain. A held send keeps them with its draft
-	Attachments []UpdateInboxDraftRequestAttachmentsItem `json:"attachments,omitempty"`
+	Attachments *Nullable[[]UpdateInboxDraftRequestAttachmentsItem] `json:"attachments,omitempty"`
 	// An address or a list of them; "Name <address>" works too
 	BCC any `json:"bcc,omitempty"`
 	// An address or a list of them; "Name <address>" works too
-	CC   any     `json:"cc,omitempty"`
-	HTML *string `json:"html,omitempty"`
+	CC   any               `json:"cc,omitempty"`
+	HTML *Nullable[string] `json:"html,omitempty"`
 	// BillionSend extension: send the draft at this time, as the caller, within 30
 	// days: an ISO 8601 datetime with offset (e.g. "2026-09-01T12:00:00Z") or a
 	// relative time like "in 2 hours". A past time sends it within a minute; null
 	// cancels. The send runs every rule and limit then; a refused one leaves the
 	// draft unsent with send_error set and fires inbox.draft.send_failed. A draft
 	// waiting for approval cannot be scheduled (409)
-	SendAt  *string `json:"send_at,omitempty"`
-	Subject *string `json:"subject,omitempty"`
-	Text    *string `json:"text,omitempty"`
+	SendAt  *Nullable[string] `json:"send_at,omitempty"`
+	Subject *Nullable[string] `json:"subject,omitempty"`
+	Text    *Nullable[string] `json:"text,omitempty"`
 	// An address or a list of them; "Name <address>" works too
 	To any `json:"to,omitempty"`
 }
@@ -1877,10 +2638,10 @@ type UpdateInboxLabelRequest struct {
 type UpdateInboxRequest struct {
 	// BillionSend extension: a new lifetime counted from now, "1h" to "365d"; null
 	// never expires
-	ExpiresIn *string `json:"expires_in,omitempty"`
+	ExpiresIn *Nullable[string] `json:"expires_in,omitempty"`
 	// "" removes it. On the shared domain a new one may not imitate a brand, and
-	// it is reviewed first where the instance reviews names (503 with retry-after
-	// while that review is unavailable).
+	// it is reviewed first (503 with retry-after while that review is
+	// unavailable).
 	FromName *string `json:"from_name,omitempty"`
 	Name     *string `json:"name,omitempty"`
 }
@@ -1898,25 +2659,27 @@ type UpdateSegmentRequest struct {
 	// is never mailed under another brand or against another brand's opt-outs.
 	// null or omitted: a segment of the whole team, sendable from any domain. On
 	// update, null makes the segment a team-wide one again.
-	DomainID *string        `json:"domain_id,omitempty"`
-	Filter   *SegmentFilter `json:"filter,omitempty"`
-	Name     *string        `json:"name,omitempty"`
+	DomainID *Nullable[string] `json:"domain_id,omitempty"`
+	Filter   *SegmentFilter    `json:"filter,omitempty"`
+	Name     *string           `json:"name,omitempty"`
 }
 
 type UpdateTemplateRequest struct {
 	// null clears the alias
-	Alias *string `json:"alias,omitempty"`
-	// Not supported yet: any value is a 422
-	From *string `json:"from,omitempty"`
-	HTML *string `json:"html,omitempty"`
-	Name *string `json:"name,omitempty"`
-	// Not supported yet: any value is a 422
+	Alias *Nullable[string] `json:"alias,omitempty"`
+	// Default sender; a send's own `from` replaces it. null clears it
+	From *Nullable[string] `json:"from,omitempty"`
+	HTML *string           `json:"html,omitempty"`
+	Name *string           `json:"name,omitempty"`
+	// Default Reply-To address or list; a send's own `reply_to` replaces it. null
+	// clears it
 	ReplyTo any `json:"reply_to,omitempty"`
 	// "" or null clears the subject
-	Subject *string `json:"subject,omitempty"`
-	Text    *string `json:"text,omitempty"`
-	// Not supported yet: a non-empty list is a 422
-	Variables []any `json:"variables,omitempty"`
+	Subject *Nullable[string] `json:"subject,omitempty"`
+	Text    *Nullable[string] `json:"text,omitempty"`
+	// The variables the content uses, up to 50; the list replaces the declared
+	// ones, [] clears them
+	Variables []TemplateVariableInput `json:"variables,omitempty"`
 }
 
 type UpdateTopicRequest struct {
@@ -1926,8 +2689,8 @@ type UpdateTopicRequest struct {
 	// come from that domain (422 otherwise). null or omitted: a topic of the whole
 	// team, shown for every domain. On update, null makes the topic a team-wide
 	// one again.
-	DomainID *string `json:"domain_id,omitempty"`
-	Name     *string `json:"name,omitempty"`
+	DomainID *Nullable[string] `json:"domain_id,omitempty"`
+	Name     *string           `json:"name,omitempty"`
 	// One of: "private", "public".
 	Visibility *string `json:"visibility,omitempty"`
 }
@@ -1940,10 +2703,12 @@ type UpdateWebhookRequest struct {
 	// "email.prefetched", "email.received", "deliverability.warning",
 	// "deliverability.paused", "quota.warning", "quota.reached", "quota.paused",
 	// "contact.created", "contact.updated", "contact.deleted",
-	// "contact.unsubscribed", "contact.resubscribed", "contact.topic_opt_in",
-	// "contact.topic_opt_out", "suppression.added", "suppression.removed",
-	// "inbox.created", "inbox.updated", "inbox.deleted", "inbox.expired",
-	// "inbox.thread.created", "inbox.thread.folder.updated",
+	// "contact.topics.updated", "contact.unsubscribed", "contact.resubscribed",
+	// "suppression.added", "suppression.removed", "domain.created",
+	// "domain.updated", "domain.deleted", "topic.created", "topic.updated",
+	// "topic.deleted", "inbox.created", "inbox.updated", "inbox.deleted",
+	// "inbox.expired", "inbox.thread.created", "inbox.thread.folder.updated",
+	// "inbox.thread.assigned", "inbox.thread.unassigned",
 	// "inbox.thread.labels.updated", "inbox.email.received", "inbox.email.sent",
 	// "inbox.email.quarantined", "inbox.draft.created", "inbox.draft.updated",
 	// "inbox.draft.sent", "inbox.draft.deleted", "inbox.draft.send_failed".
@@ -1951,26 +2716,55 @@ type UpdateWebhookRequest struct {
 	// BillionSend extension: inbox events and email.received reach this endpoint
 	// only for these inboxes of the team (at most 100). null means every inbox.
 	// Omitted: unchanged.
-	InboxIDs []string `json:"inbox_ids,omitempty"`
+	InboxIDs *Nullable[[]string] `json:"inbox_ids,omitempty"`
 	// One of: "enabled", "disabled".
 	Status *string `json:"status,omitempty"`
 }
 
 type UsageResponse struct {
-	// Dashboard origin, for building links; null when unset
-	AppURL *string             `json:"app_url"`
-	Limits UsageResponseLimits `json:"limits"`
+	// BillionSend meters no AI credits: always used 0 and no limit
+	AICredits UsageResponseAICredits `json:"ai_credits"`
+	// The automation runs created in the period `emails.monthly` counts.
+	// BillionSend does not cap them: `limit` is always 9007199254740991
+	// (Number.MAX_SAFE_INTEGER, the field being a required number), which means no
+	// limit. The emails automations send count against the plan's email quota as
+	// any email does
+	AutomationRuns UsageResponseAutomationRuns `json:"automation_runs"`
+	Broadcasts     UsageResponseBroadcasts     `json:"broadcasts"`
+	Contacts       UsageResponseContacts       `json:"contacts"`
+	Domains        UsageResponseDomains        `json:"domains"`
+	Emails         UsageResponseEmails         `json:"emails"`
+	Inboxes        UsageResponseInboxes        `json:"inboxes"`
 	// One of: "usage".
 	Object string `json:"object"`
-	// Billing-period usage on monthly plans; null on daily plans
-	Period *UsageResponsePeriod `json:"period"`
-	// Effective plan; null on the instance's own (system) team One of: "free",
-	// "starter", "pro", "scale".
-	Plan  *string            `json:"plan"`
-	Team  UsageResponseTeam  `json:"team"`
-	Today UsageResponseToday `json:"today"`
-	// Deep verification of contacts this quota month (POST /verifications)
-	Verification UsageResponseVerification `json:"verification"`
+	// BillionSend extension: effective plan; null for the instance's own team One
+	// of: "free", "starter", "pro", "scale".
+	Plan *string `json:"plan"`
+	// Every key shares a larger team-wide budget as well
+	RateLimit UsageResponseRateLimit `json:"rate_limit"`
+	Segments  UsageResponseSegments  `json:"segments"`
+	// BillionSend extension: deep verification of contacts this quota month
+	Verification     UsageResponseVerification     `json:"verification"`
+	WebhookEndpoints UsageResponseWebhookEndpoints `json:"webhook_endpoints"`
+}
+
+type ValidateAutomationRequest struct {
+	// The connections between the steps
+	Connections []any `json:"connections"`
+	// The steps, as automations.create takes them; nothing is stored
+	Steps []any `json:"steps"`
+}
+
+type ValidateAutomationResponse struct {
+	// The document can also be enabled: one trigger, every step reachable, and the
+	// templates, sender domains, topics and segments it names exist. Enabling
+	// itself is a person's act in the dashboard.
+	CanEnable bool              `json:"can_enable"`
+	Issues    []AutomationIssue `json:"issues"`
+	// One of: "automation_validation".
+	Object string `json:"object"`
+	// The document can be saved as a draft
+	Valid bool `json:"valid"`
 }
 
 type VerificationAvailabilityResponse struct {
@@ -2073,6 +2867,25 @@ type AgentSignupResponseLimits struct {
 	ReceivedPerInboxPerHour int64 `json:"received_per_inbox_per_hour"`
 }
 
+type AutomationMetricsResponseRuns struct {
+	Cancelled int64 `json:"cancelled"`
+	Completed int64 `json:"completed"`
+	Failed    int64 `json:"failed"`
+	Started   int64 `json:"started"`
+}
+
+type AutomationMetricsResponseStepsItem struct {
+	Completed int64  `json:"completed"`
+	Entered   int64  `json:"entered"`
+	Failed    int64  `json:"failed"`
+	Key       string `json:"key"`
+	Skipped   int64  `json:"skipped"`
+	// Null for a step that only an earlier version of the automation had One of:
+	// "trigger", "delay", "send_email", "wait_for_event", "condition",
+	// "contact_update", "contact_delete", "add_to_segment".
+	Type *string `json:"type"`
+}
+
 // Per-status totals over the request items; they sum to the request length
 type BatchContactsResponseCounts struct {
 	Created int64 `json:"created"`
@@ -2130,13 +2943,15 @@ type BatchGetContactsResponseDataItem struct {
 	// whose email carried the link (see unsubscribed_domains).
 	Unsubscribed bool `json:"unsubscribed"`
 	// BillionSend extension: the domains this contact unsubscribed from through a
-	// link in their email. Marketing sends from those domains skip the contact;
-	// other domains still reach them. The team-wide opt-out is `unsubscribed`, not
-	// an entry here. Remove an entry with DELETE /unsubscribes/{id}.
+	// link in their email. Mail from those domains skips the contact,
+	// transactional mail too unless the domain turned on
+	// `send_transactional_to_unsubscribed`; other domains still reach them. The
+	// team-wide switch is `unsubscribed`, not an entry here. An opt-out is
+	// permanent: only the recipient can undo it, from the hosted unsubscribe page.
 	UnsubscribedDomains []BatchGetContactsResponseDataItemUnsubscribedDomainsItem `json:"unsubscribed_domains"`
 	// BillionSend extension: the verdict of the contact's last deep verification
 	// (POST /verifications); null while it was never verified One of: "valid",
-	// "invalid", "risky", "catchall", "role", "disposable", "unknown".
+	// "invalid", "risky", "catchall", "role", "disposable".
 	VerificationStatus *string `json:"verification_status"`
 	// When the last deep verification finished; null while never verified
 	VerifiedAt *string `json:"verified_at"`
@@ -2149,6 +2964,17 @@ type BatchGetContactsResponseMissingItem struct {
 	Index int64 `json:"index"`
 }
 
+type BatchRemoveSuppressionsResponseNotRemovedItem struct {
+	ID string `json:"id"`
+	// One of: "suppression".
+	Object string `json:"object"`
+	// One of: "bounce", "complaint", "manual".
+	Origin string `json:"origin"`
+	// A bounce or complaint entry is permanent and stays on the list One of:
+	// "permanent".
+	Reason string `json:"reason"`
+}
+
 type ClientEngagementResponseDataItem struct {
 	// Pixel fetches by machines (scanners, prefetches)
 	BotOpened int64 `json:"bot_opened"`
@@ -2159,6 +2985,15 @@ type ClientEngagementResponseDataItem struct {
 	Opened int64 `json:"opened"`
 	// Emails whose first open came from here
 	UniqueOpened int64 `json:"unique_opened"`
+}
+
+type ContactImportCounts struct {
+	Created int64 `json:"created"`
+	Failed  int64 `json:"failed"`
+	Skipped int64 `json:"skipped"`
+	// Data rows read so far; the file's row count once completed
+	Total   int64 `json:"total"`
+	Updated int64 `json:"updated"`
 }
 
 type CountryEngagementResponseDataItem struct {
@@ -2178,6 +3013,13 @@ type CountryEngagementResponseDataItem struct {
 	UniqueOpened int64 `json:"unique_opened"`
 }
 
+// BillionSend extension: canvas coordinates, { nodes: { <step key>: { x, y } }
+// }, saved with the steps and read back by GET. Not part of the automation's
+// meaning; give it together with steps.
+type CreateAutomationRequestLayout struct {
+	Nodes map[string]CreateAutomationRequestLayoutNodesValue `json:"nodes"`
+}
+
 type CreateContactRequestSegmentsItem struct {
 	ID string `json:"id"`
 }
@@ -2193,10 +3035,10 @@ type CreateContactRequestTopicsItem struct {
 type CreateDomainRequestCapabilities struct {
 	// Inbound mail for every address at the domain (a catch-all), readable at
 	// /emails/receiving and announced by the email.received webhook. Enabling
-	// needs a verified domain on an instance that receives mail, and adds a
-	// Receiving MX record to records[]. A domain that already has mailboxes is
-	// best received on a subdomain (inbound.example.com): the Receiving MX would
-	// take their mail. One of: "enabled", "disabled".
+	// needs a verified domain, and adds a Receiving MX record to records[]. A
+	// domain that already has mailboxes is best received on a subdomain
+	// (inbound.example.com): the Receiving MX would take their mail. One of:
+	// "enabled", "disabled".
 	Receiving *string `json:"receiving,omitempty"`
 	// Only enabled is accepted: a domain of your own can't be receive-only, so
 	// disabled is a 422. One of: "enabled", "disabled".
@@ -2204,11 +3046,10 @@ type CreateDomainRequestCapabilities struct {
 }
 
 type CreateDomainResponseCapabilities struct {
-	// enabled while the domain receives mail; always disabled on an instance that
-	// does not
+	// enabled while the domain receives mail
 	Receiving string `json:"receiving"`
-	// enabled; on the shared row, disabled while the instance pauses sending from
-	// the shared domain
+	// enabled; on the shared row, disabled while sending from the shared domain is
+	// paused
 	Sending string `json:"sending"`
 }
 
@@ -2255,19 +3096,30 @@ type CreateDomainResponseRecordsItem struct {
 
 // BillionSend extension: this domain's own look for its unsubscribe pages. A
 // null field falls back to the team's default page, then to the built-in
-// default.
+// default. On a plan without branding (Free) recipients see the built-in look
+// and logo whatever is saved; the saved look applies again on a paid plan.
 type CreateDomainResponseUnsubscribePage struct {
 	AccentColor     *string `json:"accent_color"`
 	BackgroundColor *string `json:"background_color"`
 	BrandName       *string `json:"brand_name"`
 	// One of: "square", "gentle", "rounded", "circle".
 	LogoRadius *string `json:"logo_radius"`
-	// Read-only; uploaded in the dashboard
-	LogoURL        *string `json:"logo_url"`
-	Message        *string `json:"message"`
-	RedirectURL    *string `json:"redirect_url"`
-	SuccessMessage *string `json:"success_message"`
-	TextColor      *string `json:"text_color"`
+	// Read-only: this domain's own logo, null when none is uploaded (the page then
+	// shows the team's logo) or when this deployment has no logo storage. Set with
+	// PUT /domains/{id}/unsubscribe-page/logo, removed with DELETE
+	LogoURL *string `json:"logo_url"`
+	Message *string `json:"message"`
+	// This domain's own choice for the "Powered by BillionSend" line; null follows
+	// the team's brand default
+	PoweredBy *bool `json:"powered_by"`
+	// Read-only: whether recipients see the line now. This domain's choice, else
+	// the team's, and always true on a plan that cannot hide it
+	PoweredByEffective bool    `json:"powered_by_effective"`
+	RedirectURL        *string `json:"redirect_url"`
+	SuccessMessage     *string `json:"success_message"`
+	// Support link under the page; null shows none
+	SupportURL *string `json:"support_url"`
+	TextColor  *string `json:"text_color"`
 }
 
 type CreateInboxDraftRequestAttachmentsItem struct {
@@ -2277,6 +3129,16 @@ type CreateInboxDraftRequestAttachmentsItem struct {
 	ContentType *string `json:"content_type,omitempty"`
 	Filename    any     `json:"filename,omitempty"`
 	Path        *string `json:"path,omitempty"`
+}
+
+type DomainClaimRecord struct {
+	// The name to publish the record at: the claimed domain itself
+	Name string `json:"name"`
+	// One of: "Auto".
+	TTL string `json:"ttl"`
+	// One of: "TXT".
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 type EmailInsightsResponseChecksItem struct {
@@ -2291,6 +3153,42 @@ type EmailInsightsResponseChecksItem struct {
 	Status string `json:"status"`
 }
 
+type GetAutomationResponseConnectionsItem struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// One of: "default", "condition_met", "condition_not_met", "timeout",
+	// "event_received".
+	Type string `json:"type"`
+}
+
+// BillionSend extension: the canvas coordinates saved with the current
+// version; absent when the canvas saved none
+type GetAutomationResponseLayout struct {
+	Nodes map[string]GetAutomationResponseLayoutNodesValue `json:"nodes"`
+}
+
+type GetAutomationResponseStepsItem struct {
+	Config map[string]any `json:"config"`
+	Key    string         `json:"key"`
+	// One of: "trigger", "delay", "send_email", "wait_for_event", "condition",
+	// "contact_update", "contact_delete", "add_to_segment".
+	Type string `json:"type"`
+}
+
+type GetAutomationRunResponseStepsItem struct {
+	CompletedAt *string        `json:"completed_at"`
+	CreatedAt   string         `json:"created_at"`
+	Error       map[string]any `json:"error"`
+	Key         string         `json:"key"`
+	Output      map[string]any `json:"output"`
+	StartedAt   *string        `json:"started_at"`
+	// One of: "pending", "running", "completed", "failed", "skipped", "waiting".
+	Status string `json:"status"`
+	// One of: "trigger", "delay", "send_email", "wait_for_event", "condition",
+	// "contact_update", "contact_delete", "add_to_segment".
+	Type string `json:"type"`
+}
+
 type GetContactResponseUnsubscribedDomainsItem struct {
 	// Null when the domain has since been deleted from the team
 	DomainID *string `json:"domain_id"`
@@ -2300,11 +3198,10 @@ type GetContactResponseUnsubscribedDomainsItem struct {
 }
 
 type GetDomainResponseCapabilities struct {
-	// enabled while the domain receives mail; always disabled on an instance that
-	// does not
+	// enabled while the domain receives mail
 	Receiving string `json:"receiving"`
-	// enabled; on the shared row, disabled while the instance pauses sending from
-	// the shared domain
+	// enabled; on the shared row, disabled while sending from the shared domain is
+	// paused
 	Sending string `json:"sending"`
 }
 
@@ -2349,21 +3246,72 @@ type GetDomainResponseRecordsItem struct {
 	Value  string `json:"value"`
 }
 
+// BillionSend extension, on GET /domains/{id} only: the broadcast limit this
+// domain's registrable name is under (only broadcasts are limited; API, SMTP
+// and automation mail never are). Read-only.
+type GetDomainResponseSendingLimits struct {
+	// Broadcast deliveries in the previous window
+	B *int64 `json:"b"`
+	// Broadcast recipients the window admits: max(200, g x (t + b)); of the window
+	// that would open now while none runs; null when unlimited
+	Cap *int64 `json:"cap"`
+	// The growth multiplier: 2 while every signal is normal, 1 while a warning
+	// holds it
+	G int64 `json:"g"`
+	// The warnings holding g at 1 One of: "delivery_warning", "provider_backoff",
+	// "content_suspicious".
+	GReasons       []string                                     `json:"g_reasons"`
+	HardIndicators GetDomainResponseSendingLimitsHardIndicators `json:"hard_indicators"`
+	// warming: inside the 30-day broadcast warm-up (it starts at the domain's
+	// first successful delivery here); limited: past it, but a warning holds g at
+	// 1; unlimited: broadcasts are not limited; exempt or trusted: the team is
+	// outside the limit One of: "warming", "limited", "unlimited", "exempt",
+	// "trusted".
+	Mode string `json:"mode"`
+	// When the next window can open; null with nothing waiting
+	NextWindowAt *string `json:"next_window_at"`
+	// Broadcast recipients waiting for the next window
+	Parked int64 `json:"parked"`
+	// Transactional deliveries in the 24 hours before the window opened
+	T *int64 `json:"t"`
+	// What the running window has used; null when unlimited
+	Used *int64 `json:"used"`
+	// The day of the 30-day warm-up (1 on the first day); 0 before the first
+	// delivery
+	WarmupDay int64 `json:"warmup_day"`
+	// When the warm-up ends; null before the first delivery
+	WarmupEndsOn *string `json:"warmup_ends_on"`
+	// When the running 24-hour window opened; null while none runs (the next
+	// broadcast recipient opens one)
+	WindowStartedAt *string `json:"window_started_at"`
+}
+
 // BillionSend extension: this domain's own look for its unsubscribe pages. A
 // null field falls back to the team's default page, then to the built-in
-// default.
+// default. On a plan without branding (Free) recipients see the built-in look
+// and logo whatever is saved; the saved look applies again on a paid plan.
 type GetDomainResponseUnsubscribePage struct {
 	AccentColor     *string `json:"accent_color"`
 	BackgroundColor *string `json:"background_color"`
 	BrandName       *string `json:"brand_name"`
 	// One of: "square", "gentle", "rounded", "circle".
 	LogoRadius *string `json:"logo_radius"`
-	// Read-only; uploaded in the dashboard
-	LogoURL        *string `json:"logo_url"`
-	Message        *string `json:"message"`
-	RedirectURL    *string `json:"redirect_url"`
-	SuccessMessage *string `json:"success_message"`
-	TextColor      *string `json:"text_color"`
+	// Read-only: this domain's own logo, null when none is uploaded (the page then
+	// shows the team's logo) or when this deployment has no logo storage. Set with
+	// PUT /domains/{id}/unsubscribe-page/logo, removed with DELETE
+	LogoURL *string `json:"logo_url"`
+	Message *string `json:"message"`
+	// This domain's own choice for the "Powered by BillionSend" line; null follows
+	// the team's brand default
+	PoweredBy *bool `json:"powered_by"`
+	// Read-only: whether recipients see the line now. This domain's choice, else
+	// the team's, and always true on a plan that cannot hide it
+	PoweredByEffective bool    `json:"powered_by_effective"`
+	RedirectURL        *string `json:"redirect_url"`
+	SuccessMessage     *string `json:"success_message"`
+	// Support link under the page; null shows none
+	SupportURL *string `json:"support_url"`
+	TextColor  *string `json:"text_color"`
 }
 
 type GetReceivedEmailResponseAttachmentsItem struct {
@@ -2491,6 +3439,51 @@ type ListAPIKeysResponseDataItem struct {
 	Name       string  `json:"name"`
 }
 
+type ListAutomationRunsResponseDataItem struct {
+	CompletedAt *string `json:"completed_at"`
+	CreatedAt   string  `json:"created_at"`
+	ID          string  `json:"id"`
+	StartedAt   *string `json:"started_at"`
+	// One of: "running", "completed", "failed", "cancelled".
+	Status string `json:"status"`
+}
+
+type ListAutomationsResponseDataItem struct {
+	CreatedAt string `json:"created_at"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	// One of: "enabled", "disabled".
+	Status    string  `json:"status"`
+	UpdatedAt *string `json:"updated_at"`
+}
+
+type ListBroadcastClickedLinksResponseDataItem struct {
+	// Clicks by people
+	Clicks int64 `json:"clicks"`
+	// An opaque cursor for this row, not the id of any entity
+	ID string `json:"id"`
+	// Different recipients who clicked this link: a recipient counts once per
+	// link, so one who clicked two links is in both rows
+	UniqueClicks int64 `json:"unique_clicks"`
+	// Scheme, host and path of the clicked link
+	URL string `json:"url"`
+}
+
+type ListBroadcastRecipientsResponseDataItem struct {
+	// With type=bounced: the class of the bounce One of: "permanent", "transient",
+	// "undetermined".
+	BounceType *string `json:"bounce_type,omitempty"`
+	// With type=clicked: the links this recipient clicked. A click whose payload
+	// retention already cleared counts in `count` and names no link.
+	ClickedLinks []ListBroadcastRecipientsResponseDataItemClickedLinksItem `json:"clicked_links,omitempty"`
+	ContactID    *string                                                   `json:"contact_id"`
+	// With type=opened or clicked: the events
+	Count *int64 `json:"count,omitempty"`
+	Email string `json:"email"`
+	// The id of the recipient's email (`GET /emails/{id}`)
+	ID string `json:"id"`
+}
+
 type ListBroadcastsResponseDataItem struct {
 	CreatedAt string `json:"created_at"`
 	// BillionSend extension: when the broadcast failed; null unless status is
@@ -2562,13 +3555,15 @@ type ListContactsResponseDataItem struct {
 	// whose email carried the link (see unsubscribed_domains).
 	Unsubscribed bool `json:"unsubscribed"`
 	// BillionSend extension: the domains this contact unsubscribed from through a
-	// link in their email. Marketing sends from those domains skip the contact;
-	// other domains still reach them. The team-wide opt-out is `unsubscribed`, not
-	// an entry here. Remove an entry with DELETE /unsubscribes/{id}.
+	// link in their email. Mail from those domains skips the contact,
+	// transactional mail too unless the domain turned on
+	// `send_transactional_to_unsubscribed`; other domains still reach them. The
+	// team-wide switch is `unsubscribed`, not an entry here. An opt-out is
+	// permanent: only the recipient can undo it, from the hosted unsubscribe page.
 	UnsubscribedDomains []ListContactsResponseDataItemUnsubscribedDomainsItem `json:"unsubscribed_domains"`
 	// BillionSend extension: the verdict of the contact's last deep verification
 	// (POST /verifications); null while it was never verified One of: "valid",
-	// "invalid", "risky", "catchall", "role", "disposable", "unknown".
+	// "invalid", "risky", "catchall", "role", "disposable".
 	VerificationStatus *string `json:"verification_status"`
 	// When the last deep verification finished; null while never verified
 	VerifiedAt *string `json:"verified_at"`
@@ -2585,6 +3580,12 @@ type ListDomainsResponseDataItem struct {
 	// (true) or refused at RCPT (false)
 	ReceivingCatchAll bool   `json:"receiving_catch_all"`
 	Region            string `json:"region"`
+	// BillionSend extension: a recipient who unsubscribed from this domain, or
+	// from the whole team, gets no mail from it at all, transactional mail
+	// included. Turn this on to send this domain's transactional mail (no topic,
+	// not a broadcast) to them anyway. Default false. Broadcasts and topic mail
+	// always respect the unsubscribe.
+	SendTransactionalToUnsubscribed bool `json:"send_transactional_to_unsubscribed"`
 	// BillionSend extension, on the shared row only: what its inboxes' addresses
 	// may send. open starts conversations, reply_only replies inside their
 	// threads, receive_only sends nothing. Holds on names still apply per send: an
@@ -2593,8 +3594,8 @@ type ListDomainsResponseDataItem struct {
 	// "reply_only", "receive_only".
 	SendingMode *string `json:"sending_mode,omitempty"`
 	// BillionSend extension, on the shared row only: what holds sending below
-	// open: the team's plan or the instance; null when open One of: "plan",
-	// "instance".
+	// open: plan when the team's plan holds it, platform when the platform's
+	// sending switches do; null when open One of: "plan", "platform".
 	SendingModeReason *string `json:"sending_mode_reason,omitempty"`
 	// BillionSend extension: true on the team's subdomain of the shared inbox
 	// domain, a read-only row listed after the team's own domains (403 on changes)
@@ -2614,7 +3615,8 @@ type ListDomainsResponseDataItem struct {
 	UnsubscribeError *string `json:"unsubscribe_error"`
 	// BillionSend extension: this domain's own look for its unsubscribe pages. A
 	// null field falls back to the team's default page, then to the built-in
-	// default.
+	// default. On a plan without branding (Free) recipients see the built-in look
+	// and logo whatever is saved; the saved look applies again on a paid plan.
 	UnsubscribePage ListDomainsResponseDataItemUnsubscribePage `json:"unsubscribe_page"`
 	// BillionSend extension: where the unsubscribe subdomain stands: pending,
 	// active (unsubscribe links go through it) or failed (links use the shared
@@ -2638,6 +3640,14 @@ type ListEmailsResponseDataItem struct {
 	ScheduledAt *string  `json:"scheduled_at"`
 	Subject     string   `json:"subject"`
 	To          []string `json:"to"`
+}
+
+type ListEventsResponseDataItem struct {
+	CreatedAt string            `json:"created_at"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Schema    map[string]string `json:"schema"`
+	UpdatedAt *string           `json:"updated_at"`
 }
 
 type ListInboxDraftsResponseDataItem struct {
@@ -2707,6 +3717,20 @@ type ListInboxesResponseDataItem struct {
 	Shared       bool    `json:"shared"`
 	Unread       int64   `json:"unread"`
 	UpdatedAt    string  `json:"updated_at"`
+}
+
+type ListLogsResponseDataItem struct {
+	CreatedAt string `json:"created_at"`
+	// The request path, without the query string
+	Endpoint string `json:"endpoint"`
+	// The request id: the x-request-id header of that request
+	ID string `json:"id"`
+	// HTTP method
+	Method         string `json:"method"`
+	ResponseStatus int64  `json:"response_status"`
+	// The caller's User-Agent header, cut to 512 characters; null when the request
+	// sent none
+	UserAgent *string `json:"user_agent"`
 }
 
 type ListQuarantinedEmailsResponseDataItem struct {
@@ -2803,12 +3827,36 @@ type ListSegmentsResponseDataItem struct {
 	Object string `json:"object"`
 }
 
+type ListSentAttachmentsResponseDataItem struct {
+	// One of: "inline", "attachment".
+	ContentDisposition string  `json:"content_disposition"`
+	ContentID          *string `json:"content_id,omitempty"`
+	ContentType        string  `json:"content_type"`
+	// Signed link to the file's bytes, valid for one hour; it needs no API key
+	DownloadURL string  `json:"download_url"`
+	ExpiresAt   string  `json:"expires_at"`
+	Filename    *string `json:"filename,omitempty"`
+	ID          string  `json:"id"`
+	// Decoded size in bytes
+	Size int64 `json:"size"`
+}
+
 type ListSuppressionsResponseDataItem struct {
 	CreatedAt string `json:"created_at"`
-	Email     string `json:"email"`
-	ID        string `json:"id"`
+	// The blocked domain; null on an email entry
+	Domain *string `json:"domain"`
+	// The blocked address; null on a domain entry
+	Email *string `json:"email"`
+	ID    string  `json:"id"`
+	// BillionSend extension: an entry for one address, or for every address at one
+	// domain One of: "email", "domain".
+	Kind string `json:"kind"`
+	// BillionSend extension: why the entry was added; null on an entry SES wrote
+	Note *string `json:"note"`
 	// One of: "bounce", "complaint", "manual".
 	Origin string `json:"origin"`
+	// BillionSend extension: false for a permanent entry (a bounce or a complaint)
+	Removable bool `json:"removable"`
 	// Email id whose bounce/complaint created the entry
 	SourceID *string `json:"source_id"`
 }
@@ -2876,6 +3924,25 @@ type ListVerificationsResponseDataItem struct {
 	Total int64 `json:"total"`
 }
 
+type ListWebhookEventAttemptsResponseDataItem struct {
+	// The receiver's status; 0 when nothing answered (DNS, TLS, timeout)
+	HTTPStatusCode int64  `json:"http_status_code"`
+	ID             string `json:"id"`
+	// The response body (first 1 KiB), or the failure code when nothing answered
+	Response string `json:"response"`
+	SentAt   string `json:"sent_at"`
+}
+
+type ListWebhookEventsResponseDataItem struct {
+	CreatedAt string `json:"created_at"`
+	ID        string `json:"id"`
+	// pending: not posted yet. attempting: posted at least once and will be posted
+	// again. failed: retries ran out. success: a 2xx came back. One of: "success",
+	// "pending", "failed", "attempting".
+	Status string `json:"status"`
+	Type   string `json:"type"`
+}
+
 type ListWebhooksResponseDataItem struct {
 	CreatedAt string   `json:"created_at"`
 	Endpoint  string   `json:"endpoint"`
@@ -2886,6 +3953,11 @@ type ListWebhooksResponseDataItem struct {
 	InboxIDs []string `json:"inbox_ids"`
 	// One of: "enabled", "disabled".
 	Status string `json:"status"`
+}
+
+type OAuthGrantClient struct {
+	LogoURI *string `json:"logo_uri"`
+	Name    string  `json:"name"`
 }
 
 type ReceivedEmailForwardRequestAttachmentsItem struct {
@@ -2961,9 +4033,87 @@ type SendEmailRequestTagsItem struct {
 	Value string `json:"value"`
 }
 
+// The contact the run is for: a real one by id or email, with any of the other
+// fields laid over it, or a made-up one (an email with no contact) to try a
+// case.
+type SimulateAutomationRequestContact struct {
+	// A contact's email, or the address of a made-up contact when none matches
+	Email     *string `json:"email,omitempty"`
+	FirstName *string `json:"first_name,omitempty"`
+	// A contact of the team; 404 when it is not one
+	ID           *string           `json:"id,omitempty"`
+	LastName     *string           `json:"last_name,omitempty"`
+	Properties   map[string]string `json:"properties,omitempty"`
+	Unsubscribed *bool             `json:"unsubscribed,omitempty"`
+}
+
+type SimulateAutomationRequestEventsItem struct {
+	// When it arrives, as a duration after the run starts ("2 days"). Omitted: it
+	// arrives the moment the first wait for this name begins. An event counts for
+	// a wait only if it arrives from 5 seconds before the wait began until its
+	// timeout.
+	After   *string        `json:"after,omitempty"`
+	Name    string         `json:"name"`
+	Payload map[string]any `json:"payload,omitempty"`
+}
+
+type SimulateAutomationResponseContact struct {
+	Email     string  `json:"email"`
+	Existing  bool    `json:"existing"`
+	FirstName *string `json:"first_name"`
+	// Null for a made-up contact
+	ID       *string `json:"id"`
+	LastName *string `json:"last_name"`
+	// As the run left them: contact_update steps changed this copy only
+	Properties   map[string]string `json:"properties"`
+	Unsubscribed bool              `json:"unsubscribed"`
+}
+
+type SimulateAutomationResponseEmailsItem struct {
+	At         string         `json:"at"`
+	From       string         `json:"from"`
+	StepKey    string         `json:"step_key"`
+	Subject    *string        `json:"subject"`
+	TemplateID string         `json:"template_id"`
+	To         string         `json:"to"`
+	TopicID    *string        `json:"topic_id"`
+	Variables  map[string]any `json:"variables"`
+}
+
+type SimulateAutomationResponseStepsItem struct {
+	CompletedAt string                                    `json:"completed_at"`
+	Error       *SimulateAutomationResponseStepsItemError `json:"error"`
+	Key         string                                    `json:"key"`
+	// The step the run went to next; null when it ended
+	Next *string `json:"next"`
+	// The connection type the run followed One of: "default", "condition_met",
+	// "condition_not_met", "timeout", "event_received".
+	Outcome   *string        `json:"outcome"`
+	Output    map[string]any `json:"output"`
+	StartedAt string         `json:"started_at"`
+	// One of: "completed", "skipped", "failed".
+	Status string `json:"status"`
+	// One of: "trigger", "delay", "send_email", "wait_for_event", "condition",
+	// "contact_update", "contact_delete", "add_to_segment".
+	Type string `json:"type"`
+}
+
+type SimulateAutomationResponseUnusedEventsItem struct {
+	Index  int64  `json:"index"`
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
 type StartVerificationResponseRunsItem struct {
 	ID    string `json:"id"`
 	Total int64  `json:"total"`
+}
+
+// BillionSend extension: canvas coordinates, { nodes: { <step key>: { x, y } }
+// }, saved with the steps and read back by GET. Not part of the automation's
+// meaning; give it together with steps.
+type UpdateAutomationRequestLayout struct {
+	Nodes map[string]UpdateAutomationRequestLayoutNodesValue `json:"nodes"`
 }
 
 // What the domain is used for (sending, receiving); omitted fields keep their
@@ -2971,10 +4121,10 @@ type StartVerificationResponseRunsItem struct {
 type UpdateDomainRequestCapabilities struct {
 	// Inbound mail for every address at the domain (a catch-all), readable at
 	// /emails/receiving and announced by the email.received webhook. Enabling
-	// needs a verified domain on an instance that receives mail, and adds a
-	// Receiving MX record to records[]. A domain that already has mailboxes is
-	// best received on a subdomain (inbound.example.com): the Receiving MX would
-	// take their mail. One of: "enabled", "disabled".
+	// needs a verified domain, and adds a Receiving MX record to records[]. A
+	// domain that already has mailboxes is best received on a subdomain
+	// (inbound.example.com): the Receiving MX would take their mail. One of:
+	// "enabled", "disabled".
 	Receiving *string `json:"receiving,omitempty"`
 	// Only enabled is accepted: a domain of your own can't be receive-only, so
 	// disabled is a 422. One of: "enabled", "disabled".
@@ -2983,27 +4133,35 @@ type UpdateDomainRequestCapabilities struct {
 
 // BillionSend extension: this domain's own look for its unsubscribe pages.
 // Fields not sent keep their value; null clears one, and a cleared field falls
-// back to the team's default page. logo_url is read-only here: the logo is
-// uploaded in the dashboard.
+// back to the team's default page. logo_url is read-only here: upload the logo
+// with PUT /domains/{id}/unsubscribe-page/logo.
 type UpdateDomainRequestUnsubscribePage struct {
 	// Button and link color, #rrggbb
-	AccentColor *string `json:"accent_color,omitempty"`
+	AccentColor *Nullable[string] `json:"accent_color,omitempty"`
 	// Page background, #rrggbb
-	BackgroundColor *string `json:"background_color,omitempty"`
+	BackgroundColor *Nullable[string] `json:"background_color,omitempty"`
 	// Name shown on the page; max 80 characters
-	BrandName *string `json:"brand_name,omitempty"`
+	BrandName *Nullable[string] `json:"brand_name,omitempty"`
 	// Corner radius of the logo: square, gentle, rounded or circle One of:
 	// "square", "gentle", "rounded", "circle".
-	LogoRadius *string `json:"logo_radius,omitempty"`
+	LogoRadius *Nullable[string] `json:"logo_radius,omitempty"`
 	// Text above the unsubscribe button; max 500 characters
-	Message *string `json:"message,omitempty"`
+	Message *Nullable[string] `json:"message,omitempty"`
+	// Show "Powered by BillionSend" under the page (true) or hide it (false); null
+	// follows the team's brand default (GET /brand). A plan that cannot hide it
+	// shows it whatever is saved: the value is kept and applies on a plan that
+	// can; read powered_by_effective for what recipients see.
+	PoweredBy *Nullable[bool] `json:"powered_by,omitempty"`
 	// Where the recipient goes after unsubscribing instead of the in-page message;
 	// http(s) only
-	RedirectURL *string `json:"redirect_url,omitempty"`
+	RedirectURL *Nullable[string] `json:"redirect_url,omitempty"`
 	// Text shown once the choice is saved; max 500 characters
-	SuccessMessage *string `json:"success_message,omitempty"`
+	SuccessMessage *Nullable[string] `json:"success_message,omitempty"`
+	// A support link shown under the page; http(s) only. null shows none (the team
+	// has no support link of its own to fall back to)
+	SupportURL *Nullable[string] `json:"support_url,omitempty"`
 	// Page text color, #rrggbb
-	TextColor *string `json:"text_color,omitempty"`
+	TextColor *Nullable[string] `json:"text_color,omitempty"`
 }
 
 type UpdateInboxDraftRequestAttachmentsItem struct {
@@ -3015,50 +4173,76 @@ type UpdateInboxDraftRequestAttachmentsItem struct {
 	Path        *string `json:"path,omitempty"`
 }
 
-type UsageResponseLimits struct {
-	// Contacts the team may hold; null = unlimited
-	Contacts *int64 `json:"contacts"`
-	// null = unlimited
-	Domains *int64 `json:"domains"`
-	// Daily cap (UTC day) on Free; null on monthly plans
-	EmailsPerDay *int64 `json:"emails_per_day"`
-	// Emails included per billing period on Starter, Pro and Scale; null on Free
-	EmailsPerMonth *int64 `json:"emails_per_month"`
-	// Inboxes the team may hold at once; null = unlimited
-	Inboxes *int64 `json:"inboxes"`
-	// Webhook endpoints the team may hold; null = unlimited
-	WebhookEndpoints *int64 `json:"webhook_endpoints"`
+// BillionSend meters no AI credits: always used 0 and no limit
+type UsageResponseAICredits struct {
+	Limit          *int64  `json:"limit"`
+	NextIncreaseAt *string `json:"next_increase_at"`
+	Used           int64   `json:"used"`
 }
 
-// Billing-period usage on monthly plans; null on daily plans
-type UsageResponsePeriod struct {
-	// Emails accepted so far this billing period
-	EmailsSent int64 `json:"emails_sent"`
-	// Billing period end, when the counter resets
-	EndsAt string `json:"ends_at"`
-	// Emails the plan includes per period
-	Included int64 `json:"included"`
-	// Whether sends past `included` bill overage instead of being refused
-	OverageEnabled bool `json:"overage_enabled"`
-	// Overage price per 1,000 emails, in USD
-	OverageUsdPer1k float64 `json:"overage_usd_per_1k"`
-	// Billing period start
-	StartsAt string `json:"starts_at"`
-}
-
-type UsageResponseTeam struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-type UsageResponseToday struct {
-	// Emails accepted so far this UTC day
-	EmailsSent int64 `json:"emails_sent"`
-	// Next UTC midnight, when the daily counter resets
+// The automation runs created in the period `emails.monthly` counts.
+// BillionSend does not cap them: `limit` is always 9007199254740991
+// (Number.MAX_SAFE_INTEGER, the field being a required number), which means no
+// limit. The emails automations send count against the plan's email quota as
+// any email does
+type UsageResponseAutomationRuns struct {
+	Limit    int64  `json:"limit"`
 	ResetsAt string `json:"resets_at"`
+	Used     int64  `json:"used"`
 }
 
-// Deep verification of contacts this quota month (POST /verifications)
+type UsageResponseBroadcasts struct {
+	// Broadcasts are not capped
+	Limit any `json:"limit"`
+	// Broadcasts the team holds now
+	Used int64 `json:"used"`
+}
+
+type UsageResponseContacts struct {
+	// What the plan allows; null when the plan does not cap it
+	Limit *int64 `json:"limit"`
+	// Contacts the team holds now
+	Used int64 `json:"used"`
+}
+
+type UsageResponseDomains struct {
+	// What the plan allows; null when the plan does not cap it
+	Limit *int64 `json:"limit"`
+	// Sending domains the team holds now
+	Used int64 `json:"used"`
+}
+
+type UsageResponseEmails struct {
+	// The UTC day
+	Daily UsageResponseEmailsDaily `json:"daily"`
+	// The billing period of a monthly plan; the UTC calendar month on Free and on
+	// the system plan
+	Monthly UsageResponseEmailsMonthly `json:"monthly"`
+}
+
+type UsageResponseInboxes struct {
+	// What the plan allows; null when the plan does not cap it
+	Limit *int64 `json:"limit"`
+	// BillionSend extension: inboxes the team holds now
+	Used int64 `json:"used"`
+}
+
+// Every key shares a larger team-wide budget as well
+type UsageResponseRateLimit struct {
+	// The window, `1m`
+	Duration string `json:"duration"`
+	// Requests one API key may make in `duration`
+	Limit int64 `json:"limit"`
+}
+
+type UsageResponseSegments struct {
+	// What the plan allows; null when the plan does not cap it
+	Limit *int64 `json:"limit"`
+	// Segments the team holds now
+	Used int64 `json:"used"`
+}
+
+// BillionSend extension: deep verification of contacts this quota month
 type UsageResponseVerification struct {
 	// What the billed addresses cost, in cents
 	CostCents int64 `json:"cost_cents"`
@@ -3070,6 +4254,13 @@ type UsageResponseVerification struct {
 	PricePer1kCents int64 `json:"price_per_1k_cents"`
 	// Addresses deep verification gave a definite verdict this quota month
 	Verified int64 `json:"verified"`
+}
+
+type UsageResponseWebhookEndpoints struct {
+	// What the plan allows; null when the plan does not cap it
+	Limit *int64 `json:"limit"`
+	// BillionSend extension: webhook endpoints the team holds now
+	Used int64 `json:"used"`
 }
 
 type BatchGetContactsResponseDataItemTopicsItem struct {
@@ -3093,6 +4284,29 @@ type BatchGetContactsResponseDataItemUnsubscribedDomainsItem struct {
 	// The domain's name
 	Name           string `json:"name"`
 	UnsubscribedAt string `json:"unsubscribed_at"`
+}
+
+type CreateAutomationRequestLayoutNodesValue struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+type GetAutomationResponseLayoutNodesValue struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+type GetDomainResponseSendingLimitsHardIndicators struct {
+	// One of: "clear", "held".
+	ContentReview string `json:"content_review"`
+	// One of: "ok", "warning", "paused".
+	Delivery           string `json:"delivery"`
+	ProvidersInBackoff int64  `json:"providers_in_backoff"`
+}
+
+type ListBroadcastRecipientsResponseDataItemClickedLinksItem struct {
+	Clicks int64  `json:"clicks"`
+	URL    string `json:"url"`
 }
 
 type ListContactsResponseDataItemTopicsItem struct {
@@ -3119,29 +4333,39 @@ type ListContactsResponseDataItemUnsubscribedDomainsItem struct {
 }
 
 type ListDomainsResponseDataItemCapabilities struct {
-	// enabled while the domain receives mail; always disabled on an instance that
-	// does not
+	// enabled while the domain receives mail
 	Receiving string `json:"receiving"`
-	// enabled; on the shared row, disabled while the instance pauses sending from
-	// the shared domain
+	// enabled; on the shared row, disabled while sending from the shared domain is
+	// paused
 	Sending string `json:"sending"`
 }
 
 // BillionSend extension: this domain's own look for its unsubscribe pages. A
 // null field falls back to the team's default page, then to the built-in
-// default.
+// default. On a plan without branding (Free) recipients see the built-in look
+// and logo whatever is saved; the saved look applies again on a paid plan.
 type ListDomainsResponseDataItemUnsubscribePage struct {
 	AccentColor     *string `json:"accent_color"`
 	BackgroundColor *string `json:"background_color"`
 	BrandName       *string `json:"brand_name"`
 	// One of: "square", "gentle", "rounded", "circle".
 	LogoRadius *string `json:"logo_radius"`
-	// Read-only; uploaded in the dashboard
-	LogoURL        *string `json:"logo_url"`
-	Message        *string `json:"message"`
-	RedirectURL    *string `json:"redirect_url"`
-	SuccessMessage *string `json:"success_message"`
-	TextColor      *string `json:"text_color"`
+	// Read-only: this domain's own logo, null when none is uploaded (the page then
+	// shows the team's logo) or when this deployment has no logo storage. Set with
+	// PUT /domains/{id}/unsubscribe-page/logo, removed with DELETE
+	LogoURL *string `json:"logo_url"`
+	Message *string `json:"message"`
+	// This domain's own choice for the "Powered by BillionSend" line; null follows
+	// the team's brand default
+	PoweredBy *bool `json:"powered_by"`
+	// Read-only: whether recipients see the line now. This domain's choice, else
+	// the team's, and always true on a plan that cannot hide it
+	PoweredByEffective bool    `json:"powered_by_effective"`
+	RedirectURL        *string `json:"redirect_url"`
+	SuccessMessage     *string `json:"success_message"`
+	// Support link under the page; null shows none
+	SupportURL *string `json:"support_url"`
+	TextColor  *string `json:"text_color"`
 }
 
 type ListInboxDraftsResponseDataItemAttachmentsItem struct {
@@ -3203,6 +4427,57 @@ type SearchInboxThreadsResponseDataItemLabelsItem struct {
 	Color string `json:"color"`
 	ID    string `json:"id"`
 	Name  string `json:"name"`
+}
+
+type SimulateAutomationResponseStepsItemError struct {
+	Code    string         `json:"code"`
+	Details map[string]any `json:"details,omitempty"`
+	Message string         `json:"message"`
+}
+
+type UpdateAutomationRequestLayoutNodesValue struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// The UTC day
+type UsageResponseEmailsDaily struct {
+	// Daily cap of a daily plan (Free), or the operator's per-day ceiling on a
+	// monthly plan; null when nothing caps the day
+	Limit *int64 `json:"limit"`
+	// Messages received so far this UTC day
+	Received int64 `json:"received"`
+	// Next UTC midnight, when the daily counters reset
+	ResetsAt string `json:"resets_at"`
+	// Emails accepted for sending so far this UTC day
+	Sent int64 `json:"sent"`
+	// Sends counted against `limit` this UTC day (receiving has its own allowance)
+	Used int64 `json:"used"`
+}
+
+// The billing period of a monthly plan; the UTC calendar month on Free and on
+// the system plan
+type UsageResponseEmailsMonthly struct {
+	// Emails a monthly plan includes per billing period; null on Free, whose daily
+	// cap bounds the month
+	Limit *int64 `json:"limit"`
+	// BillionSend extension: whether sends past `limit` bill overage instead of
+	// being refused; false on Free
+	OverageEnabled bool `json:"overage_enabled"`
+	// BillionSend extension: overage price per 1,000 emails in USD; null where
+	// there is no overage
+	OverageUsdPer1k *float64 `json:"overage_usd_per_1k"`
+	// Messages received so far this period
+	Received int64 `json:"received"`
+	// End of the billing period; the next UTC month start on Free and on the
+	// system plan
+	ResetsAt string `json:"resets_at"`
+	// Emails accepted for sending so far this period
+	Sent int64 `json:"sent"`
+	// BillionSend extension: start of the period the counts cover
+	StartsAt string `json:"starts_at"`
+	// Sends counted against `limit` this period (receiving has its own allowance)
+	Used int64 `json:"used"`
 }
 
 type EmailsMetricsGetResponse struct {

@@ -30,6 +30,14 @@ func (rec *recorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec.answer(n, r, w)
 }
 
+// count is how many requests arrived, read under the lock: a handler may
+// still be running when the call has already failed.
+func (rec *recorder) count() int {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return len(rec.requests)
+}
+
 func jsonAnswer(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -52,7 +60,7 @@ func testClient(t *testing.T, answer func(n int, r *http.Request, w http.Respons
 	return c, rec, &waits
 }
 
-var sendBody = &SendEmailRequest{From: "Acme <hello@acme.dev>", To: []string{"ana@example.com"}, Subject: "Hi", HTML: String("<p>Hi</p>")}
+var sendBody = &SendEmailRequest{From: String("Acme <hello@acme.dev>"), To: []string{"ana@example.com"}, Subject: String("Hi"), HTML: String("<p>Hi</p>")}
 
 func TestReadsTheKeyAndBaseURLFromTheEnvironment(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

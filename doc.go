@@ -6,17 +6,20 @@
 // emails.send is client.Emails.Send, emails.receiving.attachments.list is
 // client.Emails.Receiving.Attachments.List. Request and response types are
 // generated from the BillionSend OpenAPI document (openapi/api.openapi.json).
+// A field of an update that null clears is a *Nullable[T] (see Value and
+// Null); an upload takes a File.
 //
 //	client := billionsend.NewClient() // reads BILLIONSEND_API_KEY
 //	sent, err := client.Emails.Send(ctx, &billionsend.SendEmailRequest{
-//		From:    "Acme <hello@acme.dev>",
+//		From:    billionsend.String("Acme <hello@acme.dev>"),
 //		To:      []string{"ana@example.com"},
-//		Subject: "Welcome",
+//		Subject: billionsend.String("Welcome"),
 //		HTML:    billionsend.String("<p>Glad you are here.</p>"),
 //	})
 //
 // Errors are typed by status (ValidationError, AuthenticationError,
 // PermissionDeniedError, NotFoundError, ConflictError, RateLimitError,
-// APIError, APIConnectionError, APITimeoutError); every one unwraps to *Error,
-// which carries StatusCode, Name, Message and RequestID.
+// APIError, APIConnectionError, APITimeoutError, WebhookVerificationError);
+// every one unwraps to *Error, which carries StatusCode, Name, Message and
+// RequestID.
 package billionsend

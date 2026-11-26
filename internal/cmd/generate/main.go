@@ -71,7 +71,7 @@ var initialisms = map[string]string{
 	"id": "ID", "ids": "IDs", "api": "API", "url": "URL", "urls": "URLs", "html": "HTML",
 	"http": "HTTP", "https": "HTTPS", "json": "JSON", "dns": "DNS", "dkim": "DKIM", "spf": "SPF",
 	"smtp": "SMTP", "mx": "MX", "ip": "IP", "mcp": "MCP", "ses": "SES", "uri": "URI", "uuid": "UUID",
-	"cc": "CC", "bcc": "BCC", "csv": "CSV", "pdf": "PDF", "ttl": "TTL", "utc": "UTC", "dmarc": "DMARC",
+	"cc": "CC", "bcc": "BCC", "oauth": "OAuth", "ai": "AI", "csv": "CSV", "pdf": "PDF", "ttl": "TTL", "utc": "UTC", "dmarc": "DMARC",
 }
 
 var wordRE = regexp.MustCompile(`[A-Z]+[a-z0-9]*|[a-z0-9]+`)
@@ -116,6 +116,11 @@ type generator struct {
 	emitted map[string]bool
 	pending []func()
 	arrays  map[string]bool // component schemas that are arrays (passed by value)
+	// inPatch marks the types being generated as the body of an update (PATCH),
+	// never received: there, leaving a field out keeps it and null clears it, so
+	// their optional fields that accept null become *Nullable[T]. In a create,
+	// null says no more than leaving the field out.
+	inPatch bool
 }
 
 func str(s schema, k string) string {
@@ -131,8 +136,17 @@ func (g *generator) typeOf(s schema, ctx string) (goType string, nullable bool) 
 	if ref := str(s, "$ref"); ref != "" {
 		return goName(refName(ref)), false
 	}
-	if all, ok := s["allOf"].([]any); ok && len(all) == 1 {
-		return g.typeOf(toSchema(all[0]), ctx)
+	if all, ok := s["allOf"].([]any); ok {
+		// The one item that gives a type; the others only describe it.
+		var typed []schema
+		for _, item := range all {
+			if x := toSchema(item); x["$ref"] != nil || x["type"] != nil || x["properties"] != nil {
+				typed = append(typed, x)
+			}
+		}
+		if len(typed) == 1 {
+			return g.typeOf(typed[0], ctx)
+		}
 	}
 	if _, ok := s["anyOf"]; ok {
 		return "any", true
@@ -248,7 +262,9 @@ func (g *generator) structType(name string, s schema) {
 		return
 	}
 	g.emitted[name] = true
+	inPatch := g.inPatch
 	g.pending = append(g.pending, func() {
+		g.inPatch = inPatch
 		props, _ := s["properties"].(map[string]any)
 		required := map[string]bool{}
 		if req, ok := s["required"].([]any); ok {
@@ -277,6 +293,10 @@ func (g *generator) structType(name string, s schema) {
 			nilable := t == "any" || strings.HasPrefix(t, "[]") || strings.HasPrefix(t, "map[")
 			tag := k
 			switch {
+			case inPatch && !required[k] && nullable && t != "any":
+				// Leaving the field out and sending null mean different things.
+				t = "*Nullable[" + t + "]"
+				tag += ",omitempty"
 			case required[k] && !nullable:
 			case required[k] && nullable:
 				if !nilable {
@@ -333,6 +353,7 @@ type op struct {
 	queryHdr   []parameter
 	bodyType   string
 	bodyArray  bool
+	multipart  bool
 	respType   string
 	stream     bool
 	idempotent bool
@@ -382,6 +403,67 @@ func (g *generator) operations() []*op {
 	return ops
 }
 
+const multipartType = "multipart/form-data"
+
+// bodies walks every operation's bodies: the component schemas the updates
+// (PATCH) send and no response answers, and the multipart forms, whose Go types are written by hand
+// (upload.go) so a file is bytes and a JSON-encoded field is a typed value.
+func (g *generator) bodies() (patchOnly, forms map[string]bool) {
+	patched, received := map[string]bool{}, map[string]bool{}
+	forms = map[string]bool{}
+	var reach func(v any, into map[string]bool)
+	reach = func(v any, into map[string]bool) {
+		switch x := v.(type) {
+		case map[string]any:
+			if ref, ok := x["$ref"].(string); ok {
+				if name := refName(ref); !into[name] {
+					into[name] = true
+					reach(map[string]any(g.doc.Components.Schemas[name]), into)
+				}
+			}
+			for _, child := range x {
+				reach(child, into)
+			}
+		case []any:
+			for _, child := range x {
+				reach(child, into)
+			}
+		}
+	}
+	for _, methods := range g.doc.Paths {
+		for m, raw := range methods {
+			if !isMethod(m) {
+				continue
+			}
+			var o operation
+			if err := json.Unmarshal(raw, &o); err != nil {
+				panic(err)
+			}
+			if o.RequestBody != nil {
+				for ct, c := range o.RequestBody.Content {
+					if ct == multipartType {
+						forms[refName(str(c.Schema, "$ref"))] = true
+						continue
+					}
+					if m == "patch" {
+						reach(map[string]any(c.Schema), patched)
+					}
+				}
+			}
+			for _, r := range o.Responses {
+				for _, c := range r.Content {
+					reach(map[string]any(c.Schema), received)
+				}
+			}
+		}
+	}
+	patchOnly = map[string]bool{}
+	for name := range patched {
+		patchOnly[name] = !received[name]
+	}
+	return patchOnly, forms
+}
+
 func isMethod(m string) bool {
 	switch m {
 	case "get", "post", "put", "patch", "delete":
@@ -424,9 +506,12 @@ func (g *generator) operation(o operation, ids map[string]bool) *op {
 		}
 	}
 	if o.RequestBody != nil {
-		for _, c := range o.RequestBody.Content {
+		for ct, c := range o.RequestBody.Content {
+			g.inPatch = o.method == "PATCH"
 			x.bodyType, _ = g.typeOf(c.Schema, x.typePrefix()+"Body")
+			g.inPatch = false
 			x.bodyArray = strings.HasPrefix(x.bodyType, "[]") || g.arrays[x.bodyType]
+			x.multipart = ct == multipartType
 		}
 	}
 	codes := make([]string, 0)
@@ -515,9 +600,15 @@ func main() {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	patchOnly, forms := g.bodies()
 	for _, n := range names {
+		if forms[n] {
+			continue
+		}
+		g.inPatch = patchOnly[n]
 		g.component(n, g.doc.Components.Schemas[n])
 	}
+	g.inPatch = false
 	g.flush()
 	ops := g.operations()
 	g.flush()
@@ -673,6 +764,9 @@ func (g *generator) method(b *bytes.Buffer, recv string, x *op) {
 	if x.idempotent {
 		b.WriteString("//\n// It always sends an Idempotency-Key: WithIdempotencyKey's, or a new UUID for this\n// call that its retries reuse.\n")
 	}
+	if x.multipart {
+		b.WriteString("//\n// It uploads multipart/form-data and is not repeated after a 5xx, a timeout or\n// a dropped connection; a 429 is still retried.\n")
+	}
 	spec := fmt.Sprintf("&call{operation: %q, method: %q, path: %q, pathParams: []string{%s}, idempotent: %t, noAuth: %t",
 		x.OperationID, x.operation.method, x.operation.path, strings.Join(pathArgs, ", "), x.idempotent, x.noAuth)
 	if x.bodyType != "" {
@@ -680,6 +774,9 @@ func (g *generator) method(b *bytes.Buffer, recv string, x *op) {
 	}
 	if paramsType != "" {
 		spec += ", params: params"
+	}
+	if x.multipart {
+		spec += ", noRepeat: true"
 	}
 	spec += "}"
 	ctxArgs := "ctx context.Context, " + strings.Join(args, ", ")

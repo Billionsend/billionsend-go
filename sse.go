@@ -97,6 +97,45 @@ func WithReconnectDelay(d time.Duration) RequestOption {
 	return func(r *requestConfig) { r.reconnectDelay = d }
 }
 
+// DefaultIdleTimeout is how long a stream's connection may deliver nothing
+// before it is dropped: three of the server's 15-second keep-alives.
+const DefaultIdleTimeout = 45 * time.Second
+
+// WithIdleTimeout treats a stream connection that delivers nothing (not even
+// the server's keep-alive comment) for this long as dropped and reconnects it,
+// so a connection that died silently cannot hang the loop. The default is
+// DefaultIdleTimeout; 0 turns it off. Time spent handling an event does not
+// count.
+func WithIdleTimeout(d time.Duration) RequestOption {
+	return func(r *requestConfig) { r.idleTimeout = &d }
+}
+
+// idleReader cancels its connection when one read waits longer than timeout.
+type idleReader struct {
+	r       io.Reader
+	timeout time.Duration
+	cancel  func()
+}
+
+func (i *idleReader) Read(p []byte) (int, error) {
+	timer := time.AfterFunc(i.timeout, i.cancel)
+	defer timer.Stop()
+	return i.r.Read(p)
+}
+
+// idleBound bounds each read of a connection's body by the idle timeout.
+func (s *EventStream) idleBound(body io.ReadCloser) io.Reader {
+	timeout := DefaultIdleTimeout
+	if s.cfg.idleTimeout != nil {
+		timeout = *s.cfg.idleTimeout
+	}
+	conn, ok := body.(*cancelOnClose)
+	if timeout <= 0 || !ok {
+		return body
+	}
+	return &idleReader{r: conn, timeout: timeout, cancel: conn.cancel}
+}
+
 // EventStream is a live inbox event stream. Range over Events; leaving the
 // loop, or calling Close, closes the connection. When the connection drops
 // (the server also closes every stream about every ten minutes) it reconnects
@@ -160,8 +199,9 @@ func (s *EventStream) connect() error {
 	return nil
 }
 
-// LastEventID is the id of the last event received: pass it to
-// WithLastEventID to resume later.
+// LastEventID is the stream's position, the id of the last event received (or
+// the one the server opened the stream at): pass it to WithLastEventID to
+// resume later.
 func (s *EventStream) LastEventID() string { return s.lastID }
 
 // Close closes the stream; a running loop ends without an error.
@@ -185,11 +225,14 @@ type serverEvent struct {
 // parseEvents reads a text/event-stream body following the WHATWG rules:
 // fields per line, an event per blank line, comments and unknown fields
 // skipped, retry setting the reconnect delay, an unterminated event dropped.
-func parseEvents(body io.Reader, lastID string, onRetry func(time.Duration), yield func(serverEvent) bool) error {
+// onID gets the position of a block that carries an id and no data (a new
+// stream opens with one): nothing is dispatched, but a reconnect resumes there.
+func parseEvents(body io.Reader, lastID string, onRetry func(time.Duration), onID func(string), yield func(serverEvent) bool) error {
 	r := bufio.NewReader(body)
 	var data []string
 	event := ""
 	id := lastID
+	idPending := false
 	first := true
 	for {
 		line, err := r.ReadString('\n')
@@ -210,8 +253,10 @@ func parseEvents(body io.Reader, lastID string, onRetry func(time.Duration), yie
 				if !yield(serverEvent{id: id, event: name, data: strings.Join(data, "\n")}) {
 					return nil
 				}
+			} else if idPending {
+				onID(id)
 			}
-			data, event = nil, ""
+			data, event, idPending = nil, "", false
 			if err != nil {
 				return err
 			}
@@ -229,7 +274,7 @@ func parseEvents(body io.Reader, lastID string, onRetry func(time.Duration), yie
 			event = value
 		case "id":
 			if !strings.Contains(value, "\x00") {
-				id = value
+				id, idPending = value, true
 			}
 		case "retry":
 			if ms, convErr := strconv.Atoi(value); convErr == nil && ms >= 0 {
@@ -269,7 +314,9 @@ func (s *EventStream) Events() iter.Seq2[InboxStreamItem, error] {
 			s.mu.Unlock()
 			if body != nil {
 				stop, ended := false, false
-				_ = parseEvents(body, s.lastID, func(d time.Duration) { s.delay = d }, func(ev serverEvent) bool {
+				onRetry := func(d time.Duration) { s.delay = d }
+				onID := func(id string) { s.lastID = id }
+				_ = parseEvents(s.idleBound(body), s.lastID, onRetry, onID, func(ev serverEvent) bool {
 					if ev.event == StreamGapEventName {
 						if gapGiven && gapAt == s.lastID {
 							return true

@@ -16,9 +16,9 @@ import (
 func Example() {
 	client := billionsend.NewClient() // BILLIONSEND_API_KEY
 	sent, err := client.Emails.Send(context.Background(), &billionsend.SendEmailRequest{
-		From:    "Acme <hello@acme.dev>",
+		From:    billionsend.String("Acme <hello@acme.dev>"),
 		To:      []string{"ana@example.com"},
-		Subject: "Welcome to Acme",
+		Subject: billionsend.String("Welcome to Acme"),
 		HTML:    billionsend.String("<p>Glad you are here.</p>"),
 	}, billionsend.WithIdempotencyKey("welcome/42"))
 	if err != nil {
@@ -96,4 +96,28 @@ func ExampleVerifyWebhook() {
 		fmt.Println(event.Type)
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// Import contacts from a CSV, and clear a domain's own tracking host.
+func Example_uploadAndClear() {
+	ctx := context.Background()
+	client := billionsend.NewClient()
+	csv, err := os.ReadFile("contacts.csv")
+	if err != nil {
+		log.Fatal(err)
+	}
+	queued, err := client.Contacts.Imports.Create(ctx, &billionsend.CreateContactImportForm{
+		File:      billionsend.File{Content: csv},
+		ColumnMap: &billionsend.ContactImportColumnMap{Email: billionsend.String("Email Address")},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(queued.ID)
+	_, err = client.Domains.Update(ctx, "d91cd9bd-1176-453e-8fc1-35364d380206", &billionsend.UpdateDomainRequest{
+		TrackingSubdomain: billionsend.Null[string](),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 }
