@@ -14,6 +14,7 @@ type services struct {
 	Audiences         *AudiencesService
 	Automations       *AutomationsService
 	Brand             *BrandService
+	BroadcastGroups   *BroadcastGroupsService
 	Broadcasts        *BroadcastsService
 	ContactProperties *ContactPropertiesService
 	Contacts          *ContactsService
@@ -40,6 +41,7 @@ func (c *Client) initServices() {
 	c.Audiences = newAudiencesService(c)
 	c.Automations = newAutomationsService(c)
 	c.Brand = newBrandService(c)
+	c.BroadcastGroups = newBroadcastGroupsService(c)
 	c.Broadcasts = newBroadcastsService(c)
 	c.ContactProperties = newContactPropertiesService(c)
 	c.Contacts = newContactsService(c)
@@ -452,10 +454,12 @@ func (s *AutomationsService) Simulate(ctx context.Context, id string, body *Simu
 // # Stop an automation
 //
 // Sets the automation to disabled: no new runs start; runs already going
-// finish. Stopping a stopped automation answers the same.
-func (s *AutomationsService) Stop(ctx context.Context, id string, opts ...RequestOption) (*StopAutomationResponse, error) {
+// finish, unless cancel_runs cancels them. Stopping a stopped automation
+// answers the same, and with cancel_runs cancels what is still going, so a
+// call cut short can be repeated.
+func (s *AutomationsService) Stop(ctx context.Context, id string, body *StopAutomationRequest, opts ...RequestOption) (*StopAutomationResponse, error) {
 	out := new(StopAutomationResponse)
-	if err := s.client.do(ctx, &call{operation: "automations.stop", method: "POST", path: "/automations/{id}/stop", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+	if err := s.client.do(ctx, &call{operation: "automations.stop", method: "POST", path: "/automations/{id}/stop", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -666,6 +670,139 @@ func (s *BrandLogoService) Delete(ctx context.Context, opts ...RequestOption) (*
 func (s *BrandLogoService) Upload(ctx context.Context, body *UploadLogoForm, opts ...RequestOption) (*LogoResponse, error) {
 	out := new(LogoResponse)
 	if err := s.client.do(ctx, &call{operation: "brand.logo.upload", method: "PUT", path: "/brand/logo", pathParams: []string{}, idempotent: false, noAuth: false, body: body, noRepeat: true}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// BroadcastGroupsService groups the BroadcastGroups operations.
+type BroadcastGroupsService struct {
+	client *Client
+}
+
+func newBroadcastGroupsService(c *Client) *BroadcastGroupsService {
+	return &BroadcastGroupsService{client: c}
+}
+
+// Cancel calls POST /broadcast-groups/{id}/cancel (broadcastGroups.cancel).
+//
+// Cancel a broadcast group
+func (s *BroadcastGroupsService) Cancel(ctx context.Context, id string, opts ...RequestOption) (*CancelBroadcastGroupResponse, error) {
+	out := new(CancelBroadcastGroupResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.cancel", method: "POST", path: "/broadcast-groups/{id}/cancel", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Create calls POST /broadcast-groups (broadcastGroups.create).
+//
+// # Create a broadcast group
+//
+// BillionSend extension: one send from several sending domains. The group
+// holds a broadcast per domain, all with the same content, from the same name
+// and local part, to the same audience; each contact is mailed from one of the
+// domains and keeps it for later sends.
+func (s *BroadcastGroupsService) Create(ctx context.Context, body *CreateBroadcastGroupRequest, opts ...RequestOption) (*CreateBroadcastGroupResponse, error) {
+	out := new(CreateBroadcastGroupResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.create", method: "POST", path: "/broadcast-groups", pathParams: []string{}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Get calls GET /broadcast-groups/{id} (broadcastGroups.get).
+//
+// Retrieve a broadcast group
+func (s *BroadcastGroupsService) Get(ctx context.Context, id string, opts ...RequestOption) (*GetBroadcastGroupResponse, error) {
+	out := new(GetBroadcastGroupResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.get", method: "GET", path: "/broadcast-groups/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// BroadcastGroupsListParams are the query and header parameters of BroadcastGroupsList.
+type BroadcastGroupsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
+// List calls GET /broadcast-groups (broadcastGroups.list).
+//
+// # List broadcast groups
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones.
+func (s *BroadcastGroupsService) List(ctx context.Context, params *BroadcastGroupsListParams, opts ...RequestOption) (*ListBroadcastGroupsResponse, error) {
+	out := new(ListBroadcastGroupsResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.list", method: "GET", path: "/broadcast-groups", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *BroadcastGroupsService) ListAll(ctx context.Context, params *BroadcastGroupsListParams, opts ...RequestOption) iter.Seq2[ListBroadcastGroupsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListBroadcastGroupsResponseDataItem, bool, error) {
+		p := BroadcastGroupsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListBroadcastGroupsResponseDataItem) string { return itemID(item) })
+}
+
+// Remove calls DELETE /broadcast-groups/{id} (broadcastGroups.remove).
+//
+// # Delete a broadcast group
+//
+// Only while all its broadcasts are drafts; they are deleted with it.
+func (s *BroadcastGroupsService) Remove(ctx context.Context, id string, opts ...RequestOption) (*RemoveBroadcastGroupResponse, error) {
+	out := new(RemoveBroadcastGroupResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.remove", method: "DELETE", path: "/broadcast-groups/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Send calls POST /broadcast-groups/{id}/send (broadcastGroups.send).
+//
+// # Send a broadcast group
+//
+// Every broadcast of the group passes the checks a broadcast's send passes,
+// and the capacity plan; all are then scheduled together, or none is.
+func (s *BroadcastGroupsService) Send(ctx context.Context, id string, body *SendBroadcastRequest, opts ...RequestOption) (*SendBroadcastGroupResponse, error) {
+	out := new(SendBroadcastGroupResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.send", method: "POST", path: "/broadcast-groups/{id}/send", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Update calls PATCH /broadcast-groups/{id} (broadcastGroups.update).
+//
+// # Update a broadcast group
+//
+// Only while all its broadcasts are drafts. Its broadcasts are rewritten: one
+// kept keeps its id, a new domain gets one, a removed domain's is deleted.
+func (s *BroadcastGroupsService) Update(ctx context.Context, id string, body *UpdateBroadcastGroupRequest, opts ...RequestOption) (*BroadcastGroupIDResponse, error) {
+	out := new(BroadcastGroupIDResponse)
+	if err := s.client.do(ctx, &call{operation: "broadcastGroups.update", method: "PATCH", path: "/broadcast-groups/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false, body: body}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1400,15 +1537,49 @@ func newContactsTopicsService(c *Client) *ContactsTopicsService {
 	return &ContactsTopicsService{client: c}
 }
 
+// ContactsTopicsListParams are the query and header parameters of ContactsTopicsList.
+type ContactsTopicsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
 // List calls GET /contacts/{id}/topics (contacts.topics.list).
 //
-// List contact topics
-func (s *ContactsTopicsService) List(ctx context.Context, id string, opts ...RequestOption) (*ListContactTopicsResponse, error) {
+// # List contact topics
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones.
+func (s *ContactsTopicsService) List(ctx context.Context, id string, params *ContactsTopicsListParams, opts ...RequestOption) (*ListContactTopicsResponse, error) {
 	out := new(ListContactTopicsResponse)
-	if err := s.client.do(ctx, &call{operation: "contacts.topics.list", method: "GET", path: "/contacts/{id}/topics", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
+	if err := s.client.do(ctx, &call{operation: "contacts.topics.list", method: "GET", path: "/contacts/{id}/topics", pathParams: []string{"id", id}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *ContactsTopicsService) ListAll(ctx context.Context, id string, params *ContactsTopicsListParams, opts ...RequestOption) iter.Seq2[ListContactTopicsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListContactTopicsResponseDataItem, bool, error) {
+		p := ContactsTopicsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, id, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListContactTopicsResponseDataItem) string { return itemID(item) })
 }
 
 // Update calls PATCH /contacts/{id}/topics (contacts.topics.update).
@@ -1726,7 +1897,14 @@ func (s *EmailsService) Cancel(ctx context.Context, id string, opts ...RequestOp
 
 // Delete calls DELETE /emails/{id} (emails.delete).
 //
-// Delete an email
+// # Delete an email
+//
+// Deletes the email with its events, stored content and share links; an email
+// that has not gone out also gives its volume back. An email that went out
+// less than 7 days ago answers `409 email_recently_sent`, because bounce and
+// complaint reports still arrive for it; the days count from the moment it was
+// handed over for sending, whatever came of it, and the message names the
+// earliest time it can be deleted. BillionSend extension.
 func (s *EmailsService) Delete(ctx context.Context, id string, opts ...RequestOption) (*RemoveEmailResponse, error) {
 	out := new(RemoveEmailResponse)
 	if err := s.client.do(ctx, &call{operation: "emails.delete", method: "DELETE", path: "/emails/{id}", pathParams: []string{"id", id}, idempotent: false, noAuth: false}, out, opts); err != nil {
@@ -4038,15 +4216,49 @@ func (s *TopicsService) Get(ctx context.Context, id string, opts ...RequestOptio
 	return out, nil
 }
 
+// TopicsListParams are the query and header parameters of TopicsList.
+type TopicsListParams struct {
+	// Page size, 1-100 (default 20)
+	Limit *int64 `query:"limit"`
+	// Cursor: id of the last item of the current page; returns the next page. Must
+	// be an id this list returned; there is no sentinel value.
+	After *string `query:"after"`
+	// Cursor: id of the first item of the current page; returns the previous page;
+	// same rule as after.
+	Before *string `query:"before"`
+}
+
 // List calls GET /topics (topics.list).
 //
-// List topics
-func (s *TopicsService) List(ctx context.Context, opts ...RequestOption) (*ListTopicsResponse, error) {
+// # List topics
+//
+// Newest first, with cursor pagination: `after` takes the last id of a page
+// and pages toward older items, `before` takes the first id and pages back
+// toward newer ones.
+func (s *TopicsService) List(ctx context.Context, params *TopicsListParams, opts ...RequestOption) (*ListTopicsResponse, error) {
 	out := new(ListTopicsResponse)
-	if err := s.client.do(ctx, &call{operation: "topics.list", method: "GET", path: "/topics", pathParams: []string{}, idempotent: false, noAuth: false}, out, opts); err != nil {
+	if err := s.client.do(ctx, &call{operation: "topics.list", method: "GET", path: "/topics", pathParams: []string{}, idempotent: false, noAuth: false, params: params}, out, opts); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListAll walks every item of List, fetching pages as it goes: forward from
+// params.After, or backward when params.Before is set. A failed page ends the
+// walk with its error.
+func (s *TopicsService) ListAll(ctx context.Context, params *TopicsListParams, opts ...RequestOption) iter.Seq2[ListTopicsResponseDataItem, error] {
+	return paginate(func(after, before *string) ([]ListTopicsResponseDataItem, bool, error) {
+		p := TopicsListParams{}
+		if params != nil {
+			p = *params
+		}
+		p.After, p.Before = after, before
+		page, err := s.List(ctx, &p, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return page.Data, page.HasMore, nil
+	}, startCursor(params), func(item ListTopicsResponseDataItem) string { return itemID(item) })
 }
 
 // Update calls PATCH /topics/{id} (topics.update).

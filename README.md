@@ -2,7 +2,7 @@
 
 The official Go client for the [BillionSend](https://billionsend.com) email API: send email, run inboxes for people and agents, stream inbox events, verify webhooks, and manage domains, contacts and broadcasts.
 
-- Every API operation (186), typed from the BillionSend OpenAPI document: sending, domains, contacts and imports, broadcasts, templates, automations and custom events, webhooks, inboxes, logs and brand settings.
+- Every API operation (193), typed from the BillionSend OpenAPI document: sending, domains, contacts and imports, broadcasts and multi-domain broadcast groups, templates, automations and custom events, webhooks, inboxes, logs and brand settings.
 - Errors typed by status, all unwrapping to `*billionsend.Error` with the request id.
 - Safe sends: every send carries an `Idempotency-Key`, so retries after a timeout never send twice.
 - Iterators for every list and for live inbox events, with automatic resume.
@@ -182,7 +182,7 @@ The multipart forms of the uploads are written by hand in `upload.go`, and a tes
 A Go module needs no registry: the version tag is the release.
 
 1. Set `Version` in `version.go`, add the version to `CHANGELOG.md`, and commit.
-2. Tag the commit `v<Version>` (for example `v0.2.0`) and push the tag.
+2. Tag the commit `v<Version>` (for example `v0.3.0`) and push the tag.
 3. Run the `release` workflow (Actions → release → Run workflow) on that tag. It refuses a tag that does not name `version.go`'s version, runs the checks, creates the GitHub release and asks `proxy.golang.org` for the version, so `go get github.com/billionsend/billionsend-go@v<Version>` finds it at once.
 
 ## License

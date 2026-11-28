@@ -242,6 +242,10 @@ type Brand struct {
 	ShowTopics bool `json:"show_topics"`
 }
 
+type BroadcastGroupIDResponse struct {
+	ID string `json:"id"`
+}
+
 type BroadcastIDResponse struct {
 	ID string `json:"id"`
 }
@@ -252,6 +256,14 @@ type CancelAutomationRunResponse struct {
 	Object string `json:"object"`
 	// One of: "cancelled".
 	Status string `json:"status"`
+}
+
+type CancelBroadcastGroupResponse struct {
+	// Emails stopped before going out; the ones already sent are not recalled
+	CanceledRemaining int64  `json:"canceled_remaining"`
+	ID                string `json:"id"`
+	// One of: "broadcast_group".
+	Object string `json:"object"`
 }
 
 type CancelBroadcastResponse struct {
@@ -272,20 +284,21 @@ type ClaimDomainRequest struct {
 	// Rewrite links to redirect through the tracking host and record email.clicked
 	// events. Off by default.
 	ClickTracking *bool `json:"click_tracking,omitempty"`
-	// The MAIL FROM (return-path) subdomain, fixed when the domain is added: it
-	// cannot be changed later (delete and re-add the domain). Defaults to
-	// `bounce`, not `send`, so a domain that still sends through another provider
-	// whose return path is `send` keeps its bounces working while both send.
+	// The MAIL FROM (return-path) label, fixed when the domain is added: it cannot
+	// be changed later (delete and re-add the domain). The MAIL FROM host is
+	// `<label>-<region>.<domain>` (e.g. `bounce-us-east-2`), and records lists its
+	// MX and TXT. Defaults to `bounce`, not `send`, so a domain that still sends
+	// through another provider whose return path is `send` keeps its bounces
+	// working while both send.
 	CustomReturnPath *string `json:"custom_return_path,omitempty"`
 	Name             string  `json:"name"`
 	// Inject a tracking pixel served from the tracking host and record
 	// email.opened events. Off by default.
 	OpenTracking *bool `json:"open_tracking,omitempty"`
-	// SES region of the identity, one of the regions this deployment serves (the
-	// values listed here). Without one, the team's default sending region from
-	// Settings is used, else the first listed. Any other region is rejected with
-	// 422. A domain has one region, fixed when it is added. One of: "us-east-1",
-	// "eu-west-1", "sa-east-1", "ap-northeast-1".
+	// The SES region the domain sends from, one of the regions this deployment
+	// serves (the values listed here); without one, the first listed. Any other
+	// region is rejected with 422. Echoed back as the domain's region. One of:
+	// "us-east-2", "ap-southeast-1", "eu-west-3".
 	Region *string `json:"region,omitempty"`
 	// DNS label of the domain's own tracking host, e.g. "links" for
 	// links.<domain>. Optional: without one, tracked links use the shared tracking
@@ -391,7 +404,57 @@ type CreateAutomationRequest struct {
 	Steps []AutomationStep `json:"steps,omitempty"`
 }
 
+type CreateBroadcastGroupRequest struct {
+	// The sending domains, 2 to 20 different ones of your verified domains; the
+	// group gets one broadcast per domain
+	DomainIDs []string `json:"domain_ids"`
+	// As on a broadcast: the "still want these?" email for long-unengaged contacts
+	DormantCheck *bool `json:"dormant_check,omitempty"`
+	// The part before the @ of every From; each domain of the group completes it
+	FromLocalPart string `json:"from_local_part"`
+	// Display name of every From, as in "Name <local@domain>"
+	FromName *string `json:"from_name,omitempty"`
+	// HTML body; at least one of html/text is required
+	HTML *string `json:"html,omitempty"`
+	// As on a broadcast: true also sends to contacts marked dormant
+	IncludeDormant *bool `json:"include_dormant,omitempty"`
+	// Internal name shown in the dashboard
+	Name        string  `json:"name"`
+	PreviewText *string `json:"preview_text,omitempty"`
+	// Domains you left out of this send whose contacts are given one of domain_ids
+	// instead; a contact who unsubscribed from its old domain is left out. Without
+	// it, contacts on a domain outside the group are not mailed
+	ReassignDomainIDs []string `json:"reassign_domain_ids,omitempty"`
+	ReplyTo           any      `json:"reply_to,omitempty"`
+	// Deliver later (requires send: true): ISO 8601 with offset or relative like
+	// "in 1 hour"
+	ScheduledAt *string `json:"scheduled_at,omitempty"`
+	// Segment to send to, one not bound to a domain; omitted means every contact
+	// of the team
+	SegmentID *string `json:"segment_id,omitempty"`
+	// true sends (or schedules) the group at once
+	Send    *bool  `json:"send,omitempty"`
+	Subject string `json:"subject"`
+	// Plain-text body
+	Text *string `json:"text,omitempty"`
+	// Topic id, one not bound to a domain; only contacts subscribed to it receive
+	// the send
+	TopicID *string `json:"topic_id,omitempty"`
+}
+
+type CreateBroadcastGroupResponse struct {
+	// The group's broadcasts, in domain_ids' order
+	BroadcastIDs []string `json:"broadcast_ids"`
+	// With send: true, when the last email is expected to go out (ISO 8601); null
+	// when unknown
+	FinishesAt *string `json:"finishes_at,omitempty"`
+	ID         string  `json:"id"`
+}
+
 type CreateBroadcastRequest struct {
+	// An older name for segment_id, accepted as its alias; sending both with
+	// different values answers 422
+	AudienceID *string `json:"audience_id,omitempty"`
 	// BillionSend extension: when true (the default), a contact who got 8 or more
 	// of your broadcasts and automation emails with no tracked open or click for
 	// 120 days (or ever) gets a short "still want these?" email with a confirm
@@ -475,21 +538,24 @@ type CreateDomainRequest struct {
 	// Rewrite links to redirect through the tracking host and record email.clicked
 	// events. Off by default.
 	ClickTracking *bool `json:"click_tracking,omitempty"`
-	// The MAIL FROM (return-path) subdomain, fixed when the domain is added: it
-	// cannot be changed later (delete and re-add the domain). Defaults to
-	// `bounce`, not `send`, so a domain that still sends through another provider
-	// whose return path is `send` keeps its bounces working while both send.
+	// The MAIL FROM (return-path) label, fixed when the domain is added: it cannot
+	// be changed later (delete and re-add the domain). The MAIL FROM host is
+	// `<label>-<region>.<domain>` (e.g. `bounce-us-east-2`), and records lists its
+	// MX and TXT. Defaults to `bounce`, not `send`, so a domain that still sends
+	// through another provider whose return path is `send` keeps its bounces
+	// working while both send.
 	CustomReturnPath *string `json:"custom_return_path,omitempty"`
 	Name             string  `json:"name"`
 	// Inject a tracking pixel served from the tracking host and record
 	// email.opened events. Off by default.
 	OpenTracking *bool `json:"open_tracking,omitempty"`
-	// SES region of the identity, one of the regions this deployment serves (the
-	// values listed here). Without one, the team's default sending region from
-	// Settings is used, else the first listed. Any other region is rejected with
-	// 422. A domain has one region, fixed when it is added. One of: "us-east-1",
-	// "eu-west-1", "sa-east-1", "ap-northeast-1".
+	// The SES region the domain sends from, one of the regions this deployment
+	// serves (the values listed here); without one, the first listed. Any other
+	// region is rejected with 422. Echoed back as the domain's region. One of:
+	// "us-east-2", "ap-southeast-1", "eu-west-3".
 	Region *string `json:"region,omitempty"`
+	// Not supported: sending it answers 422.
+	Tls any `json:"tls,omitempty"`
 	// DNS label of the domain's own tracking host, e.g. "links" for
 	// links.<domain>. Optional: without one, tracked links use the shared tracking
 	// host. Setting it adds a Tracking CNAME to records[] (point it at the given
@@ -523,7 +589,8 @@ type CreateDomainResponse struct {
 	// (true) or refused at RCPT (false)
 	ReceivingCatchAll bool                              `json:"receiving_catch_all"`
 	Records           []CreateDomainResponseRecordsItem `json:"records"`
-	Region            string                            `json:"region"`
+	// The region the domain sends from, chosen when it was added.
+	Region string `json:"region"`
 	// BillionSend extension: a recipient who unsubscribed from this domain, or
 	// from the whole team, gets no mail from it at all, transactional mail
 	// included. Turn this on to send this domain's transactional mail (no topic,
@@ -963,8 +1030,52 @@ type GetAutomationRunResponse struct {
 	Steps  []GetAutomationRunResponseStepsItem `json:"steps"`
 }
 
+type GetBroadcastGroupResponse struct {
+	Broadcasts []GetBroadcastGroupResponseBroadcastsItem `json:"broadcasts"`
+	CreatedAt  string                                    `json:"created_at"`
+	DomainIDs  []string                                  `json:"domain_ids"`
+	// Each domain id's weight in the split of the unassigned contacts, fixed when
+	// the group is sent; null on a draft
+	DomainWeights map[string]float64 `json:"domain_weights"`
+	DormantCheck  bool               `json:"dormant_check"`
+	// Estimated instant the last email goes out, while the group is going out;
+	// else null
+	FinishesAt     *string `json:"finishes_at"`
+	FromLocalPart  string  `json:"from_local_part"`
+	FromName       *string `json:"from_name"`
+	HTML           *string `json:"html"`
+	ID             string  `json:"id"`
+	IncludeDormant bool    `json:"include_dormant"`
+	Name           string  `json:"name"`
+	// One of: "broadcast_group".
+	Object string `json:"object"`
+	// Contacts left out because they belong to a domain outside the group; null
+	// until the send counted them
+	OtherBrandCount   *int64   `json:"other_brand_count"`
+	PreviewText       *string  `json:"preview_text"`
+	ReassignDomainIDs []string `json:"reassign_domain_ids"`
+	ReplyTo           []string `json:"reply_to"`
+	ScheduledAt       *string  `json:"scheduled_at"`
+	SegmentID         *string  `json:"segment_id"`
+	// Emails handed off so far, over all its broadcasts
+	SentCount int64 `json:"sent_count"`
+	// queued while any of its broadcasts is going out; once all ended, sent if any
+	// sent, else failed if any failed, else canceled One of: "draft", "queued",
+	// "sent", "canceled", "failed".
+	Status  string  `json:"status"`
+	Subject string  `json:"subject"`
+	Text    *string `json:"text"`
+	TopicID *string `json:"topic_id"`
+	// Who the send reaches at most: each broadcast's written emails, else its
+	// counted audience; null before a count
+	TotalCount *int64 `json:"total_count"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
 type GetBroadcastResponse struct {
-	CreatedAt string `json:"created_at"`
+	// The same value as segment_id, under its older name
+	AudienceID *string `json:"audience_id"`
+	CreatedAt  string  `json:"created_at"`
 	// BillionSend extension: the domain of yours that from is on, set whenever
 	// from is. Its opt-outs decide who is left out and its unsubscribe page opens
 	// from the links. null while from is not on a domain of yours (the broadcast
@@ -989,8 +1100,12 @@ type GetBroadcastResponse struct {
 	// else null
 	FinishesAt *string `json:"finishes_at"`
 	From       string  `json:"from"`
-	HTML       *string `json:"html"`
-	ID         string  `json:"id"`
+	// BillionSend extension: the broadcast group this broadcast is one sending
+	// domain's part of; it is changed, sent and deleted only through the group.
+	// null for a broadcast of no group
+	GroupID *string `json:"group_id"`
+	HTML    *string `json:"html"`
+	ID      string  `json:"id"`
 	// BillionSend extension: whether contacts marked dormant are included
 	IncludeDormant bool    `json:"include_dormant"`
 	Name           *string `json:"name"`
@@ -1001,8 +1116,7 @@ type GetBroadcastResponse struct {
 	ScheduledAt *string  `json:"scheduled_at"`
 	SegmentID   *string  `json:"segment_id"`
 	SentAt      *string  `json:"sent_at"`
-	// Emails handed off so far; null before the send starts and once its emails
-	// have left the retention window
+	// Emails handed off so far; null before the send starts
 	SentCount *int64 `json:"sent_count"`
 	// draft, queued, sent, or the BillionSend extensions canceled and failed.
 	// failed: the send could not go ahead, either on a condition no retry would
@@ -1066,7 +1180,8 @@ type GetDomainResponse struct {
 	// (true) or refused at RCPT (false)
 	ReceivingCatchAll bool                           `json:"receiving_catch_all"`
 	Records           []GetDomainResponseRecordsItem `json:"records"`
-	Region            string                         `json:"region"`
+	// The region the domain sends from, chosen when it was added.
+	Region string `json:"region"`
 	// BillionSend extension: a recipient who unsubscribed from this domain, or
 	// from the whole team, gets no mail from it at all, transactional mail
 	// included. Turn this on to send this domain's transactional mail (no topic,
@@ -1135,8 +1250,11 @@ type GetEmailResponse struct {
 	ScheduledAt *string  `json:"scheduled_at"`
 	Score       *float64 `json:"score"`
 	Subject     string   `json:"subject"`
-	Text        *string  `json:"text"`
-	To          []string `json:"to"`
+	// The tags set when the email was sent; absent when it has none
+	Tags    []GetEmailResponseTagsItem `json:"tags,omitempty"`
+	Text    *string                    `json:"text"`
+	To      []string                   `json:"to"`
+	TopicID *string                    `json:"topic_id"`
 }
 
 type GetLogResponse struct {
@@ -1676,6 +1794,13 @@ type ListBroadcastClickedLinksResponse struct {
 	Object string `json:"object"`
 }
 
+type ListBroadcastGroupsResponse struct {
+	Data    []ListBroadcastGroupsResponseDataItem `json:"data"`
+	HasMore bool                                  `json:"has_more"`
+	// One of: "list".
+	Object string `json:"object"`
+}
+
 type ListBroadcastRecipientsResponse struct {
 	Data    []ListBroadcastRecipientsResponseDataItem `json:"data"`
 	HasMore bool                                      `json:"has_more"`
@@ -1705,9 +1830,8 @@ type ListContactPropertiesResponse struct {
 }
 
 type ListContactTopicsResponse struct {
-	Data []ListContactTopicsResponseDataItem `json:"data"`
-	// One of: "false".
-	HasMore bool `json:"has_more"`
+	Data    []ListContactTopicsResponseDataItem `json:"data"`
+	HasMore bool                                `json:"has_more"`
 	// One of: "list".
 	Object string `json:"object"`
 }
@@ -1841,9 +1965,8 @@ type ListTemplatesResponse struct {
 }
 
 type ListTopicsResponse struct {
-	Data []ListTopicsResponseDataItem `json:"data"`
-	// One of: "false".
-	HasMore bool `json:"has_more"`
+	Data    []ListTopicsResponseDataItem `json:"data"`
+	HasMore bool                         `json:"has_more"`
 	// One of: "list".
 	Object string `json:"object"`
 }
@@ -1986,6 +2109,14 @@ type RemoveAutomationResponse struct {
 	Deleted bool   `json:"deleted"`
 	ID      string `json:"id"`
 	// One of: "automation".
+	Object string `json:"object"`
+}
+
+type RemoveBroadcastGroupResponse struct {
+	// One of: "true".
+	Deleted bool   `json:"deleted"`
+	ID      string `json:"id"`
+	// One of: "broadcast_group".
 	Object string `json:"object"`
 }
 
@@ -2172,6 +2303,13 @@ type SegmentResponse struct {
 	Object string `json:"object"`
 }
 
+type SendBroadcastGroupResponse struct {
+	BroadcastIDs []string `json:"broadcast_ids"`
+	// When the last email is expected to go out (ISO 8601); null when unknown
+	FinishesAt *string `json:"finishes_at"`
+	ID         string  `json:"id"`
+}
+
 type SendBroadcastRequest struct {
 	// Deliver later: ISO 8601 with offset or relative like "in 1 hour"; omitted
 	// sends now
@@ -2345,6 +2483,13 @@ type StartVerificationResponse struct {
 	Runs []StartVerificationResponseRunsItem `json:"runs"`
 }
 
+type StopAutomationRequest struct {
+	// BillionSend extension: also cancel the runs already going, as cancelling a
+	// run does; their mail already accepted stays accepted. Default false: they
+	// finish
+	CancelRuns *bool `json:"cancel_runs,omitempty"`
+}
+
 type StopAutomationResponse struct {
 	ID string `json:"id"`
 	// One of: "automation".
@@ -2468,7 +2613,40 @@ type UpdateBrandRequest struct {
 	ShowTopics *bool `json:"show_topics,omitempty"`
 }
 
+type UpdateBroadcastGroupRequest struct {
+	// The sending domains, 2 to 20 different ones of your verified domains; the
+	// group gets one broadcast per domain
+	DomainIDs []string `json:"domain_ids,omitempty"`
+	// As on a broadcast: the "still want these?" email for long-unengaged contacts
+	DormantCheck *bool `json:"dormant_check,omitempty"`
+	// The part before the @ of every From; each domain of the group completes it
+	FromLocalPart *string `json:"from_local_part,omitempty"`
+	// Display name of every From, as in "Name <local@domain>"
+	FromName *Nullable[string] `json:"from_name,omitempty"`
+	HTML     *string           `json:"html,omitempty"`
+	// As on a broadcast: true also sends to contacts marked dormant
+	IncludeDormant *bool   `json:"include_dormant,omitempty"`
+	Name           *string `json:"name,omitempty"`
+	PreviewText    *string `json:"preview_text,omitempty"`
+	// Domains you left out of this send whose contacts are given one of domain_ids
+	// instead; a contact who unsubscribed from its old domain is left out. Without
+	// it, contacts on a domain outside the group are not mailed
+	ReassignDomainIDs []string `json:"reassign_domain_ids,omitempty"`
+	ReplyTo           any      `json:"reply_to,omitempty"`
+	// Segment to send to, one not bound to a domain; omitted means every contact
+	// of the team
+	SegmentID *Nullable[string] `json:"segment_id,omitempty"`
+	Subject   *string           `json:"subject,omitempty"`
+	Text      *string           `json:"text,omitempty"`
+	// Topic id, one not bound to a domain; only contacts subscribed to it receive
+	// the send
+	TopicID *Nullable[string] `json:"topic_id,omitempty"`
+}
+
 type UpdateBroadcastRequest struct {
+	// An older name for segment_id, accepted as its alias; sending both with
+	// different values answers 422
+	AudienceID *string `json:"audience_id,omitempty"`
 	// BillionSend extension: when true (the default), a contact who got 8 or more
 	// of your broadcasts and automation emails with no tracked open or click for
 	// 120 days (or ever) gets a short "still want these?" email with a confirm
@@ -2538,7 +2716,8 @@ type UpdateDomainRequest struct {
 	// not a broadcast) to them anyway. Default false. Broadcasts and topic mail
 	// always respect the unsubscribe.
 	SendTransactionalToUnsubscribed *bool `json:"send_transactional_to_unsubscribed,omitempty"`
-	Tls                             any   `json:"tls,omitempty"`
+	// Not supported: sending it answers 422.
+	Tls any `json:"tls,omitempty"`
 	// DNS label of the domain's own tracking host, e.g. "links" for
 	// links.<domain>. Optional: without one, tracked links use the shared tracking
 	// host. Setting it adds a Tracking CNAME to records[] (point it at the given
@@ -3078,7 +3257,10 @@ type CreateDomainResponseRecordsItem struct {
 	// unsubscribe subdomain is set to a label other than the tracking one) or
 	// Receiving (the MX inbound mail needs, present while receiving is enabled; it
 	// reads verified only when it is among the domain's lowest-numbered MX
-	// records). Only the DKIM and SPF rows gate sending.
+	// records). Only the DKIM and SPF rows gate sending: the domain verifies once
+	// DKIM and the MAIL FROM pair verify. Add every record listed: mail whose MAIL
+	// FROM records are missing goes out with the provider's own return path, and
+	// DMARC still aligns on DKIM.
 	Record string `json:"record"`
 	// not_started | pending | verified | failed. DKIM and SPF rows combine public
 	// DNS with the provider's verification: found in DNS but not yet confirmed
@@ -3189,6 +3371,24 @@ type GetAutomationRunResponseStepsItem struct {
 	Type string `json:"type"`
 }
 
+type GetBroadcastGroupResponseBroadcastsItem struct {
+	DomainID *string `json:"domain_id"`
+	// One of: "domain_missing", "sender_domain_mismatch", "topic_other_domain",
+	// "segment_other_domain", "domain_unverified", "retries_exhausted".
+	FailureReason *string `json:"failure_reason"`
+	FinishesAt    *string `json:"finishes_at"`
+	From          string  `json:"from"`
+	// The broadcast's id, readable at GET /broadcasts/{id}
+	ID        string  `json:"id"`
+	SentAt    *string `json:"sent_at"`
+	SentCount int64   `json:"sent_count"`
+	// queued while any of its broadcasts is going out; once all ended, sent if any
+	// sent, else failed if any failed, else canceled One of: "draft", "queued",
+	// "sent", "canceled", "failed".
+	Status     string `json:"status"`
+	TotalCount *int64 `json:"total_count"`
+}
+
 type GetContactResponseUnsubscribedDomainsItem struct {
 	// Null when the domain has since been deleted from the team
 	DomainID *string `json:"domain_id"`
@@ -3230,7 +3430,10 @@ type GetDomainResponseRecordsItem struct {
 	// unsubscribe subdomain is set to a label other than the tracking one) or
 	// Receiving (the MX inbound mail needs, present while receiving is enabled; it
 	// reads verified only when it is among the domain's lowest-numbered MX
-	// records). Only the DKIM and SPF rows gate sending.
+	// records). Only the DKIM and SPF rows gate sending: the domain verifies once
+	// DKIM and the MAIL FROM pair verify. Add every record listed: mail whose MAIL
+	// FROM records are missing goes out with the provider's own return path, and
+	// DMARC still aligns on DKIM.
 	Record string `json:"record"`
 	// not_started | pending | verified | failed. DKIM and SPF rows combine public
 	// DNS with the provider's verification: found in DNS but not yet confirmed
@@ -3312,6 +3515,11 @@ type GetDomainResponseUnsubscribePage struct {
 	// Support link under the page; null shows none
 	SupportURL *string `json:"support_url"`
 	TextColor  *string `json:"text_color"`
+}
+
+type GetEmailResponseTagsItem struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type GetReceivedEmailResponseAttachmentsItem struct {
@@ -3469,6 +3677,38 @@ type ListBroadcastClickedLinksResponseDataItem struct {
 	URL string `json:"url"`
 }
 
+type ListBroadcastGroupsResponseDataItem struct {
+	Broadcasts []ListBroadcastGroupsResponseDataItemBroadcastsItem `json:"broadcasts"`
+	CreatedAt  string                                              `json:"created_at"`
+	DomainIDs  []string                                            `json:"domain_ids"`
+	// Each domain id's weight in the split of the unassigned contacts, fixed when
+	// the group is sent; null on a draft
+	DomainWeights map[string]float64 `json:"domain_weights"`
+	// Estimated instant the last email goes out, while the group is going out;
+	// else null
+	FinishesAt *string `json:"finishes_at"`
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	// Contacts left out because they belong to a domain outside the group; null
+	// until the send counted them
+	OtherBrandCount   *int64   `json:"other_brand_count"`
+	ReassignDomainIDs []string `json:"reassign_domain_ids"`
+	ScheduledAt       *string  `json:"scheduled_at"`
+	SegmentID         *string  `json:"segment_id"`
+	// Emails handed off so far, over all its broadcasts
+	SentCount int64 `json:"sent_count"`
+	// queued while any of its broadcasts is going out; once all ended, sent if any
+	// sent, else failed if any failed, else canceled One of: "draft", "queued",
+	// "sent", "canceled", "failed".
+	Status  string  `json:"status"`
+	Subject string  `json:"subject"`
+	TopicID *string `json:"topic_id"`
+	// Who the send reaches at most: each broadcast's written emails, else its
+	// counted audience; null before a count
+	TotalCount *int64 `json:"total_count"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
 type ListBroadcastRecipientsResponseDataItem struct {
 	// With type=bounced: the class of the bounce One of: "permanent", "transient",
 	// "undetermined".
@@ -3485,7 +3725,9 @@ type ListBroadcastRecipientsResponseDataItem struct {
 }
 
 type ListBroadcastsResponseDataItem struct {
-	CreatedAt string `json:"created_at"`
+	// The same value as segment_id, under its older name
+	AudienceID *string `json:"audience_id"`
+	CreatedAt  string  `json:"created_at"`
 	// BillionSend extension: when the broadcast failed; null unless status is
 	// failed
 	FailedAt *string `json:"failed_at"`
@@ -3506,8 +3748,7 @@ type ListBroadcastsResponseDataItem struct {
 	ScheduledAt *string `json:"scheduled_at"`
 	SegmentID   *string `json:"segment_id"`
 	SentAt      *string `json:"sent_at"`
-	// Emails handed off so far; null before the send starts and once its emails
-	// have left the retention window
+	// Emails handed off so far; null before the send starts
 	SentCount *int64 `json:"sent_count"`
 	// draft, queued, sent, or the BillionSend extensions canceled and failed.
 	// failed: the send could not go ahead, either on a condition no retry would
@@ -3578,8 +3819,9 @@ type ListDomainsResponseDataItem struct {
 	OpenTracking  bool                                    `json:"open_tracking"`
 	// BillionSend extension: whether mail to an address without an inbox is stored
 	// (true) or refused at RCPT (false)
-	ReceivingCatchAll bool   `json:"receiving_catch_all"`
-	Region            string `json:"region"`
+	ReceivingCatchAll bool `json:"receiving_catch_all"`
+	// The region the domain sends from, chosen when it was added.
+	Region string `json:"region"`
 	// BillionSend extension: a recipient who unsubscribed from this domain, or
 	// from the whole team, gets no mail from it at all, transactional mail
 	// included. Turn this on to send this domain's transactional mail (no topic,
@@ -3636,10 +3878,12 @@ type ListEmailsResponseDataItem struct {
 	From        string   `json:"from"`
 	ID          string   `json:"id"`
 	LastEvent   string   `json:"last_event"`
+	MessageID   string   `json:"message_id"`
 	ReplyTo     []string `json:"reply_to"`
 	ScheduledAt *string  `json:"scheduled_at"`
 	Subject     string   `json:"subject"`
 	To          []string `json:"to"`
+	TopicID     *string  `json:"topic_id"`
 }
 
 type ListEventsResponseDataItem struct {
@@ -4302,6 +4546,24 @@ type GetDomainResponseSendingLimitsHardIndicators struct {
 	// One of: "ok", "warning", "paused".
 	Delivery           string `json:"delivery"`
 	ProvidersInBackoff int64  `json:"providers_in_backoff"`
+}
+
+type ListBroadcastGroupsResponseDataItemBroadcastsItem struct {
+	DomainID *string `json:"domain_id"`
+	// One of: "domain_missing", "sender_domain_mismatch", "topic_other_domain",
+	// "segment_other_domain", "domain_unverified", "retries_exhausted".
+	FailureReason *string `json:"failure_reason"`
+	FinishesAt    *string `json:"finishes_at"`
+	From          string  `json:"from"`
+	// The broadcast's id, readable at GET /broadcasts/{id}
+	ID        string  `json:"id"`
+	SentAt    *string `json:"sent_at"`
+	SentCount int64   `json:"sent_count"`
+	// queued while any of its broadcasts is going out; once all ended, sent if any
+	// sent, else failed if any failed, else canceled One of: "draft", "queued",
+	// "sent", "canceled", "failed".
+	Status     string `json:"status"`
+	TotalCount *int64 `json:"total_count"`
 }
 
 type ListBroadcastRecipientsResponseDataItemClickedLinksItem struct {

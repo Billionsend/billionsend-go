@@ -91,7 +91,7 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		return err
 	},
 	"automations.stop": func(ctx context.Context, c *Client) error {
-		_, err := c.Automations.Stop(ctx, "p1")
+		_, err := c.Automations.Stop(ctx, "p1", &StopAutomationRequest{})
 		return err
 	},
 	"automations.update": func(ctx context.Context, c *Client) error {
@@ -116,6 +116,34 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 	},
 	"brand.update": func(ctx context.Context, c *Client) error {
 		_, err := c.Brand.Update(ctx, &UpdateBrandRequest{})
+		return err
+	},
+	"broadcastGroups.cancel": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Cancel(ctx, "p1")
+		return err
+	},
+	"broadcastGroups.create": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Create(ctx, &CreateBroadcastGroupRequest{})
+		return err
+	},
+	"broadcastGroups.get": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Get(ctx, "p1")
+		return err
+	},
+	"broadcastGroups.list": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.List(ctx, nil)
+		return err
+	},
+	"broadcastGroups.remove": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Remove(ctx, "p1")
+		return err
+	},
+	"broadcastGroups.send": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Send(ctx, "p1", &SendBroadcastRequest{})
+		return err
+	},
+	"broadcastGroups.update": func(ctx context.Context, c *Client) error {
+		_, err := c.BroadcastGroups.Update(ctx, "p1", &UpdateBroadcastGroupRequest{})
 		return err
 	},
 	"broadcasts.cancel": func(ctx context.Context, c *Client) error {
@@ -235,7 +263,7 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		return err
 	},
 	"contacts.topics.list": func(ctx context.Context, c *Client) error {
-		_, err := c.Contacts.Topics.List(ctx, "p1")
+		_, err := c.Contacts.Topics.List(ctx, "p1", nil)
 		return err
 	},
 	"contacts.topics.update": func(ctx context.Context, c *Client) error {
@@ -677,7 +705,7 @@ var coverageCalls = map[string]func(ctx context.Context, c *Client) error{
 		return err
 	},
 	"topics.list": func(ctx context.Context, c *Client) error {
-		_, err := c.Topics.List(ctx)
+		_, err := c.Topics.List(ctx, nil)
 		return err
 	},
 	"topics.update": func(ctx context.Context, c *Client) error {

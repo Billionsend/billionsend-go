@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (2026-11-28)
+
+The OpenAPI snapshot follows the document the API publishes now (193 operations, up from 186), and every one has a method.
+
+### New operations
+
+- `BroadcastGroups` (`Create`, `List`, `Get`, `Update`, `Remove`, `Send`, `Cancel`): one send from several sending domains. The group holds a broadcast per domain with the same content, name and audience; each contact is mailed from one domain and keeps it. `ListAll` walks the groups' cursor pages. New types: `CreateBroadcastGroupRequest`, `UpdateBroadcastGroupRequest` (`FromName`, `SegmentID` and `TopicID` are `*Nullable[T]`), `GetBroadcastGroupResponse` with each domain's broadcast, `SendBroadcastGroupResponse`, `CancelBroadcastGroupResponse` and the rest.
+
+### Changed
+
+- `Automations.Stop` takes an optional `*StopAutomationRequest` (`CancelRuns` also cancels the runs still going; pass `nil` for the old behaviour).
+- `Topics.List` and `Contacts.Topics.List` are cursor pages: they take `*TopicsListParams` and `*ContactsTopicsListParams` (`Limit`, `After`, `Before`) and answer `HasMore`; `ListAll` is available on both.
+- A broadcast carries `AudienceID` (the same value as `SegmentID`) and `GroupID` (its broadcast group, nil for none); `CreateBroadcastRequest` accepts `AudienceID`. `GetEmailResponse` carries `Tags`; an email read or listed carries `TopicID`.
+- The documentation of a domain's `Region` and return-path label now names the regions the deployment serves (`us-east-2`, `ap-southeast-1`, `eu-west-3`).
+
 ## 0.2.0 (2026-11-26)
 
 The OpenAPI snapshot follows the document the API now publishes (186 operations, up from 139), and every one has a method.
